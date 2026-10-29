@@ -5,8 +5,8 @@ import { Platform } from 'react-native';
 
 import type { TtsReport, TtsResult, YesNoAnswer } from '@/diagnostics/report';
 import {
-  isPremiumVoice,
   loadVoices,
+  pickVoice,
   prepareTtsAudioSession,
   voiceQualityLabel,
   type AudioSessionModule,
@@ -32,24 +32,6 @@ export const TTS_SAMPLES: Record<TtsLang, string> = {
 /** 1.0 is the system default rate. */
 export const TTS_RATES = [0.9, 1.0, 1.15] as const;
 export type TtsRate = (typeof TTS_RATES)[number];
-
-/**
- * Best installed voice for a language. expo-speech reports only Default/Enhanced quality, so
- * this also reads iOS voice identifiers (observed format, not a documented contract):
- * "com.apple.voice.premium.*" beats enhanced, and novelty/Eloquence voices are avoided.
- */
-export function pickVoice(voices: readonly Speech.Voice[], lang: TtsLang): Speech.Voice | null {
-  const prefix = lang.slice(0, 2).toLowerCase();
-  const normalize = (language: string) => language.replace('_', '-').toLowerCase();
-  const score = (v: Speech.Voice) =>
-    (isPremiumVoice(v) ? 5 : 0) +
-    (v.quality === Speech.VoiceQuality.Enhanced ? 4 : 0) +
-    (normalize(v.language) === lang.toLowerCase() ? 1 : 0) -
-    (/speech\.synthesis\.voice|eloquence/i.test(v.identifier) ? 10 : 0);
-  const candidates = voices.filter((v) => normalize(v.language).startsWith(prefix));
-  candidates.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
-  return candidates[0] ?? null;
-}
 
 export function useTtsTest() {
   const [voices, setVoices] = useState<Speech.Voice[]>([]);

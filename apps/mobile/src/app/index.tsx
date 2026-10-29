@@ -6,7 +6,7 @@ import { AppText } from '@/components/app-text';
 import { Button } from '@/components/button';
 import { colors, spacing } from '@/theme/tokens';
 
-/** M0 home (wireframe 01 flavour). The voice-first start screen arrives in M1/M2. */
+/** Home (wireframe 01 flavour). The voice-first start arrives in M2. */
 export default function HomeScreen() {
   const router = useRouter();
 
@@ -23,6 +23,12 @@ export default function HomeScreen() {
       <View style={styles.actions}>
         <Button
           large
+          label="Start HeyNavi"
+          accessibilityHint="Opens the camera to search for an object, with spoken feedback."
+          onPress={() => router.push('/session')}
+        />
+        <Button
+          variant="secondary"
           label="Open device diagnostics"
           accessibilityHint="Opens camera, speech and backend tests for this iPhone."
           onPress={() => router.push('/diagnostics')}
@@ -47,6 +53,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   actions: {
+    gap: spacing.md,
     paddingBottom: spacing.xl,
   },
 });

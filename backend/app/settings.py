@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     spark_model: str = "muse-spark-1.3"
     spark_reasoning_effort: str = "minimal"
     meta_timeout_seconds: float = Field(default=20.0, gt=0)
+    # Wall-clock budget for one sam-3.1 call from POST /v1/detect (never retried there).
+    sam_timeout_seconds: float = Field(default=4.0, gt=0)
     heynavi_app_token: SecretStr | None = Field(default=None, repr=False)
     log_level: str = "INFO"
 

@@ -1,4 +1,4 @@
-"""HeyNavi FastAPI app. M0 exposes only GET /health; /v1/* routes arrive in M1."""
+"""HeyNavi FastAPI app: GET /health here, /v1/* endpoints in app/routes/."""
 
 from __future__ import annotations
 
@@ -11,13 +11,20 @@ from fastapi import APIRouter, Depends, FastAPI, Header
 from pydantic import BaseModel
 
 from app import __version__
+from app.body_limit import BodySizeLimitMiddleware
 from app.deps import get_app_settings, get_meta_client, require_app_token
+from app.errors import install_error_handlers
+from app.images import MAX_UPLOAD_JPEG_BYTES, base64_length
 from app.meta.client import MetaAPIError, MetaClient
+from app.routes import detect
 from app.settings import Settings, load_settings_or_exit
 
 log = logging.getLogger("heynavi")
 
 SERVICE_NAME = "heynavi-backend"
+# The largest valid /v1/detect body: base64 of the biggest allowed JPEG, plus room for
+# the other fields and an encoder that writes each "/" as "\/" (~42 KB for JPEG data).
+MAX_REQUEST_BODY_BYTES = base64_length(MAX_UPLOAD_JPEG_BYTES) + 64 * 1024
 
 router = APIRouter()
 
@@ -88,7 +95,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await client.aclose()
 
     app = FastAPI(title="HeyNavi backend", version=__version__, lifespan=lifespan)
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
+    install_error_handlers(app)
     app.include_router(router)
+    app.include_router(detect.router)
     return app
 
 

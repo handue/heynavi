@@ -39,6 +39,7 @@ def test_defaults_without_env() -> None:
     assert s.meta_api_base_url == "https://api.meta.ai/v1"
     assert (s.sam_model, s.spark_model, s.spark_reasoning_effort) == ("sam-3.1", "muse-spark-1.3", "minimal")
     assert s.meta_timeout_seconds == 20.0
+    assert s.sam_timeout_seconds == 4.0
     assert s.log_level == "INFO"
 
 
@@ -138,6 +139,11 @@ def test_invalid_values_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValidationError):
         make_settings()
     monkeypatch.setenv("META_TIMEOUT_SECONDS", "5")
+    monkeypatch.setenv("SAM_TIMEOUT_SECONDS", "-1")
+    with pytest.raises(ValidationError):
+        make_settings()
+    monkeypatch.setenv("SAM_TIMEOUT_SECONDS", "2.5")
+    assert make_settings().sam_timeout_seconds == 2.5
     monkeypatch.setenv("LOG_LEVEL", "LOUD")
     with pytest.raises(ValidationError):
         make_settings()

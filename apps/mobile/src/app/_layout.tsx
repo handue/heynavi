@@ -16,6 +16,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.white },
         }}>
         <Stack.Screen name="index" options={{ title: 'HeyNavi', headerShown: false }} />
+        <Stack.Screen name="session" options={{ title: 'HeyNavi', headerBackTitle: 'Home' }} />
         <Stack.Screen
           name="diagnostics"
           options={{

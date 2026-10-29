@@ -117,7 +117,15 @@ def test_deep_health_on_network_error() -> None:
     assert (body["models_reachable"], body["error"]) == (False, "network_error")
 
 
-def test_no_v1_routes_yet() -> None:
-    paths = set(create_app(make_settings()).openapi()["paths"])
-    assert paths == {"/health"}
-    assert not any(path.startswith("/v1") for path in paths)
+def test_registered_routes() -> None:
+    paths = create_app(make_settings()).openapi()["paths"]
+    assert set(paths) == {"/health", "/v1/detect"}
+    assert set(paths["/v1/detect"]) == {"post"}
+
+
+def test_deep_health_401_uses_contract_error_shape() -> None:
+    settings = make_settings(model_api_key=TEST_KEY, heynavi_app_token=APP_TOKEN)
+    with respx.mock(assert_all_called=False), TestClient(create_app(settings)) as client:
+        response = client.get("/health?deep=true", headers={"X-HeyNavi-Token": "wrong"})
+    assert response.status_code == 401
+    assert response.json() == {"error": {"code": "unauthorized", "message": "invalid or missing app token"}}

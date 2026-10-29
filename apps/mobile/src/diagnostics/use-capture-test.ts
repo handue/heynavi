@@ -1,29 +1,26 @@
 import { requireOptionalNativeModule } from 'expo';
 import type { CameraView } from 'expo-camera';
-import { File } from 'expo-file-system';
-import {
-  ImageManipulator,
-  SaveFormat,
-  type ImageManipulatorContext,
-  type ImageRef,
-} from 'expo-image-manipulator';
 import type { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { AccessibilityInfo } from 'react-native';
 
 import type { CameraReport, ShutterAnswer } from '@/diagnostics/report';
 import { isRecognizerActive, mergeActivity } from '@/diagnostics/stt-activity';
-import { abortError, createSerialGate, withAbortAndTimeout } from '@/lib/async';
+import { withAbortAndTimeout } from '@/lib/async';
 import { sleep } from '@/lib/sleep';
 import { base64KB, round, summarize } from '@/lib/stats';
+import {
+  DIAGNOSTICS_CAPTURE,
+  PICTURE_SIZE,
+  captureFrame,
+  isCaptureBusy,
+} from '@/perception/capture';
 
 export const CAPTURE = {
   frames: 10,
   targetIntervalMs: 1200,
-  pictureSize: '1280x720',
-  captureQuality: 0.8,
-  longestSide: 768,
-  jpegCompress: 0.6,
+  pictureSize: PICTURE_SIZE,
+  ...DIAGNOSTICS_CAPTURE,
   /** A frame (capture + processing) that takes longer than this counts as hung. */
   frameTimeoutMs: 5000,
 } as const;
@@ -44,19 +41,12 @@ export type CaptureStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error';
 
 type PictureSizes = { sizes: string[] } | { error: string } | null;
 
-/**
- * Exactly one takePictureAsync is ever in flight, because a second call while one is pending
- * throws CameraNotReadyException on iOS. Module level, so it also holds back a new run (or a
- * remounted screen) while a cancelled or timed-out capture is still pending natively.
- */
-const nativeCapture = createSerialGate();
-
 type SttStateModule = Pick<typeof ExpoSpeechRecognitionModule, 'getStateAsync'>;
 
 /** Null in Expo Go, which does not include expo-speech-recognition. */
 const sttModule = requireOptionalNativeModule<SttStateModule>('ExpoSpeechRecognition');
 
-/** Serial capture benchmark. Cancel and timeouts end a run at once (see `nativeCapture`). */
+/** Serial capture benchmark. Cancel and timeouts end a run at once (see perception/capture). */
 export function useCaptureTest(cameraRef: RefObject<CameraView | null>) {
   const [status, setStatus] = useState<CaptureStatus>('idle');
   const [frames, setFrames] = useState<FrameStat[]>([]);
@@ -184,11 +174,11 @@ async function runCaptureLoop(
     for (let i = 0; i < CAPTURE.frames && !signal.aborted; i++) {
       const camera = getCamera();
       if (!camera) throw new Error('The camera preview is not mounted.');
-      const queued = nativeCapture.busy;
+      const queued = isCaptureBusy();
       const startedAt = performance.now();
       // Cancel ends the run at once; a hung capture fails the run instead of blocking it.
       const measured = await withAbortAndTimeout(
-        captureFrame(camera, signal),
+        measureFrame(camera, signal),
         signal,
         CAPTURE.frameTimeoutMs,
         `Frame ${i + 1} timed out after ${CAPTURE.frameTimeoutMs / 1000} s` +
@@ -208,67 +198,17 @@ async function runCaptureLoop(
   }
 }
 
-/**
- * Capture -> resize (longest side 768) -> JPEG base64 -> release native refs -> delete file.
- * May keep running after the caller gave up on it; it still releases everything it made.
- */
-async function captureFrame(
+/** One shared-pipeline capture, reduced to the stats this benchmark reports. */
+async function measureFrame(
   camera: CameraView,
   signal: AbortSignal,
 ): Promise<Omit<FrameStat, 'index' | 'startedAtMs'>> {
-  let t0 = 0;
-  const picture = await nativeCapture.run(async () => {
-    // Queued behind a hung capture and the run is over: do not touch the camera.
-    if (signal.aborted) throw abortError();
-    t0 = performance.now();
-    // pictureRef keeps the photo in native memory: no file write and no base64 for the full frame.
-    return camera.takePictureAsync({
-      pictureRef: true,
-      shutterSound: false,
-      quality: CAPTURE.captureQuality,
-    });
-  });
-  if (!picture) throw new Error('Camera returned no picture (not ready yet?).');
-  if (signal.aborted) {
-    // Arrived after cancel, timeout or unmount: nobody wants it.
-    picture.release();
-    throw abortError();
-  }
-  const t1 = performance.now();
-
-  let context: ImageManipulatorContext | null = null;
-  let image: ImageRef | null = null;
-  try {
-    // manipulate() accepts the camera's PictureRef directly and fixes EXIF orientation.
-    context = ImageManipulator.manipulate(picture);
-    if (Math.max(picture.width, picture.height) > CAPTURE.longestSide) {
-      context.resize(
-        picture.width >= picture.height
-          ? { width: CAPTURE.longestSide }
-          : { height: CAPTURE.longestSide },
-      );
-    }
-    image = await context.renderAsync();
-    const saved = await image.saveAsync({
-      format: SaveFormat.JPEG,
-      compress: CAPTURE.jpegCompress,
-      base64: true,
-    });
-    const t2 = performance.now();
-    deleteCacheFile(saved.uri);
-    return {
-      captureMs: round(t1 - t0),
-      processMs: round(t2 - t1),
-      totalMs: round(t2 - t0),
-      width: saved.width,
-      height: saved.height,
-      base64KB: base64KB(saved.base64 ?? ''),
-    };
-  } finally {
-    image?.release();
-    context?.release();
-    picture.release();
-  }
+  const { base64, width, height, captureMs, processMs, totalMs } = await captureFrame(
+    camera,
+    signal,
+    DIAGNOSTICS_CAPTURE,
+  );
+  return { captureMs, processMs, totalMs, width, height, base64KB: base64KB(base64) };
 }
 
 /** Native recognizer state: true unless "inactive", null when unreadable. Never rejects. */
@@ -292,16 +232,6 @@ async function loadPictureSizes(camera: CameraView): Promise<PictureSizes> {
     return { sizes: await camera.getAvailablePictureSizesAsync() };
   } catch (e) {
     return { error: errorMessage(e) };
-  }
-}
-
-/** saveAsync always writes a JPEG to the cache directory; frames must never be kept. */
-function deleteCacheFile(uri: string) {
-  try {
-    const file = new File(uri);
-    if (file.exists) file.delete();
-  } catch (e) {
-    console.warn('[diagnostics] could not delete capture cache file', e);
   }
 }
 

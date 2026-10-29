@@ -1,4 +1,4 @@
-"""JPEG data-URL encoding for model calls. Images are processed in memory only."""
+"""JPEG encoding and upload validation for model calls. Images are processed in memory only."""
 
 from __future__ import annotations
 
@@ -14,7 +14,18 @@ from typing import NamedTuple
 from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 
 DEFAULT_JPEG_QUALITY = 70
+JPEG_DATA_URL_PREFIX = "data:image/jpeg;base64,"
+MAX_UPLOAD_JPEG_BYTES = 2_000_000
+_JPEG_MAGIC = b"\xff\xd8\xff"
 _HEIF_SUFFIXES = {".heic", ".heif"}
+
+
+class InvalidImageError(ValueError):
+    """Not strict, standard base64, or not a JPEG. The message never quotes the input."""
+
+
+class ImageTooLargeError(ValueError):
+    """The decoded image would be larger than the upload limit."""
 
 
 class EncodedImage(NamedTuple):
@@ -62,8 +73,33 @@ def encode_jpeg(img: Image.Image, max_side: int, quality: int) -> EncodedImage:
     buffer = io.BytesIO()
     img.save(buffer, format="JPEG", quality=quality)
     jpeg = buffer.getvalue()
-    data_url = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
+    data_url = JPEG_DATA_URL_PREFIX + base64.b64encode(jpeg).decode("ascii")
     return EncodedImage(data_url, img.width, img.height, len(jpeg))
+
+
+def base64_length(byte_count: int) -> int:
+    """Length of the padded base64 text for byte_count bytes."""
+    return 4 * -(-byte_count // 3)
+
+
+def decode_base64_jpeg(value: str, max_bytes: int = MAX_UPLOAD_JPEG_BYTES) -> bytes:
+    """Decode raw base64 (no "data:" prefix, no whitespace) that must hold a JPEG.
+
+    A string too long to fit in max_bytes once decoded is rejected before decoding.
+    """
+    if len(value) > base64_length(max_bytes):
+        raise ImageTooLargeError(f"image is larger than {max_bytes:,} bytes")
+    if value.startswith("data:"):
+        raise InvalidImageError("image_b64 must be raw base64, without a data: URL prefix")
+    try:
+        jpeg = base64.b64decode(value, validate=True)
+    except ValueError:  # binascii.Error, or a non-ASCII character
+        raise InvalidImageError("image_b64 is not valid base64") from None
+    if len(jpeg) > max_bytes:
+        raise ImageTooLargeError(f"image is larger than {max_bytes:,} bytes")
+    if not jpeg.startswith(_JPEG_MAGIC):
+        raise InvalidImageError("image_b64 is not a JPEG")
+    return jpeg
 
 
 def _open_image(path: Path) -> Image.Image:

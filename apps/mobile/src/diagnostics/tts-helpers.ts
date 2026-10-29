@@ -12,6 +12,28 @@ export function voiceQualityLabel(voice: Pick<Voice, 'identifier' | 'quality'>):
   return isPremiumVoice(voice) ? 'Premium' : voice.quality;
 }
 
+/**
+ * Best installed voice for a language. expo-speech reports only Default/Enhanced quality, so
+ * this also reads iOS voice identifiers (observed format, not a documented contract):
+ * "com.apple.voice.premium.*" beats enhanced, and novelty/Eloquence voices are avoided.
+ */
+export function pickVoice<V extends Pick<Voice, 'identifier' | 'name' | 'language' | 'quality'>>(
+  voices: readonly V[],
+  lang: string,
+): V | null {
+  const prefix = lang.slice(0, 2).toLowerCase();
+  const normalize = (language: string) => language.replace('_', '-').toLowerCase();
+  const score = (v: V) =>
+    (isPremiumVoice(v) ? 5 : 0) +
+    // VoiceQuality.Enhanced; compared as a string so this module keeps type-only imports.
+    ((v.quality as string) === 'Enhanced' ? 4 : 0) +
+    (normalize(v.language) === lang.toLowerCase() ? 1 : 0) -
+    (/speech\.synthesis\.voice|eloquence/i.test(v.identifier) ? 10 : 0);
+  const candidates = voices.filter((v) => normalize(v.language).startsWith(prefix));
+  candidates.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
+  return candidates[0] ?? null;
+}
+
 /** getAvailableVoicesAsync(), or [] when it throws or rejects. */
 export async function loadVoices(getVoices: () => Promise<Voice[]>): Promise<Voice[]> {
   try {

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -34,7 +35,11 @@ Sleep = Callable[[float], Awaitable[None]]
 
 
 class MetaAPIError(Exception):
-    """A failed Meta API call. `status` is None when no HTTP response arrived."""
+    """A failed Meta API call. `status` is None when no HTTP response arrived.
+
+    `code_from_body` is True only when `code` is Meta's own error.code; otherwise it is
+    Meta's error.type or a code made up here (http_<status>, timeout, network_error, ...).
+    """
 
     def __init__(
         self,
@@ -42,6 +47,8 @@ class MetaAPIError(Exception):
         code: str,
         message: str,
         retry_after: float | None = None,
+        *,
+        code_from_body: bool = False,
     ) -> None:
         shown_status = status if status is not None else "no-response"
         super().__init__(f"Meta API error ({shown_status}, {code}): {message}")
@@ -49,11 +56,13 @@ class MetaAPIError(Exception):
         self.code = code
         self.message = message
         self.retry_after = retry_after
+        self.code_from_body = code_from_body
 
     def __repr__(self) -> str:
         return (
             f"MetaAPIError(status={self.status!r}, code={self.code!r}, "
-            f"message={self.message!r}, retry_after={self.retry_after!r})"
+            f"message={self.message!r}, retry_after={self.retry_after!r}, "
+            f"code_from_body={self.code_from_body!r})"
         )
 
 
@@ -106,9 +115,13 @@ class MetaClient:
         return await self._request("GET", "/models")
 
     async def create_response(
-        self, payload: dict[str, Any], *, timeout: float | None = None
+        self, payload: dict[str, Any], *, timeout: float | None = None, retry: bool = True
     ) -> dict[str, Any]:
-        return _require_object(await self._request("POST", "/responses", payload, timeout))
+        """retry=False makes exactly one attempt, for interactive callers that must not
+        sit in a back-off (the per-frame /v1/detect loop just sends the next frame)."""
+        return _require_object(
+            await self._request("POST", "/responses", payload, timeout, retry=retry)
+        )
 
     async def chat_completion(
         self, payload: dict[str, Any], *, timeout: float | None = None
@@ -137,9 +150,12 @@ class MetaClient:
         path: str,
         payload: dict[str, Any] | None = None,
         timeout: float | None = None,
+        *,
+        retry: bool = True,
     ) -> Any:
         request_timeout = httpx.USE_CLIENT_DEFAULT if timeout is None else timeout
-        for attempt in (1, 2):
+        max_attempts = 2 if retry else 1
+        for attempt in range(1, max_attempts + 1):
             self.last_attempts = attempt
             started = time.perf_counter()
             failure: MetaAPIError | None = None
@@ -176,7 +192,7 @@ class MetaClient:
             error = self._to_error(response)
             # Retry exactly once, only for documented transient statuses. 504 and other
             # 4xx are never retried: an unchanged retry would fail the same way.
-            if attempt == 1 and response.status_code in RETRYABLE_STATUSES:
+            if attempt < max_attempts and response.status_code in RETRYABLE_STATUSES:
                 base = error.retry_after if error.retry_after is not None else DEFAULT_RETRY_WAIT_SECONDS
                 wait = min(base, MAX_RETRY_WAIT_SECONDS) + random.uniform(0, MAX_JITTER_SECONDS)
                 log.warning("meta %s %s got %d, retrying once in %.2f s", method, path, response.status_code, wait)
@@ -185,26 +201,54 @@ class MetaClient:
             raise error
         raise AssertionError("unreachable")
 
+    def ensure_completed(self, body: dict[str, Any]) -> None:
+        """A 200 Responses object can still report a failure in its own "status" and
+        "error" fields; raise MetaAPIError for those instead of treating them as output."""
+        status = body.get("status")
+        error = body.get("error")
+        if status in (None, "completed") and not error:
+            return
+        shown = str(status)[:40]
+        raise self._error_from(200, error, f"response_{shown}", f"response status {shown}")
+
     def _to_error(self, response: httpx.Response) -> MetaAPIError:
         status = response.status_code
-        code = f"http_{status}"
-        message = response.reason_phrase or "request failed"
         try:
             body: Any = response.json()
         except ValueError:
             body = None
-        if isinstance(body, dict):
-            err = body.get("error", body)
-            if isinstance(err, dict):
-                code = str(err.get("code") or err.get("type") or code)
-                message = str(err.get("message") or message)
-            elif isinstance(err, str):
-                message = err
+        err = body.get("error", body) if isinstance(body, dict) else None
+        return self._error_from(
+            status,
+            err,
+            f"http_{status}",
+            response.reason_phrase or "request failed",
+            parse_retry_after(response.headers.get("retry-after")),
+        )
+
+    def _error_from(
+        self,
+        status: int,
+        err: Any,
+        fallback_code: str,
+        fallback_message: str,
+        retry_after: float | None = None,
+    ) -> MetaAPIError:
+        code, message, code_from_body = fallback_code, fallback_message, False
+        if isinstance(err, dict):
+            if err.get("code"):
+                code, code_from_body = str(err["code"]), True
+            elif err.get("type"):
+                code = str(err["type"])  # diagnostics only; never passed on as Meta's code
+            message = str(err.get("message") or message)
+        elif isinstance(err, str):
+            message = err
         return MetaAPIError(
             status,
             self._scrub(code)[:80],
             self._scrub(message)[:_MAX_MESSAGE_CHARS],
-            parse_retry_after(response.headers.get("retry-after")),
+            retry_after,
+            code_from_body=code_from_body,
         )
 
     def _scrub(self, text: str) -> str:
@@ -212,13 +256,16 @@ class MetaClient:
 
 
 def parse_retry_after(value: str | None) -> float | None:
-    """Retry-After is either delta-seconds or an HTTP date."""
+    """Retry-After is either delta-seconds or an HTTP date. Non-finite numbers ("inf",
+    "1e400", "nan") count as absent."""
     if value is None or not value.strip():
         return None
     try:
-        return max(0.0, float(value))
+        seconds = float(value)
     except ValueError:
         pass
+    else:
+        return max(0.0, seconds) if math.isfinite(seconds) else None
     try:
         when = parsedate_to_datetime(value)
     except (TypeError, ValueError):
