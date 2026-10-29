@@ -112,3 +112,8 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 | G6 | ko-KR and en-US on-device STT in airplane mode (dev build) | Both transcribe | Fall back to Korean via Muse Voice Transcribe push-to-talk |
 | G7 | Xcode 26.6 + SDK 58 dev build on device | App launches | Retry with `EXPO_USE_PRECOMPILED_MODULES=0`; if that fails, update macOS and install Xcode 27.1 |
 | G8 | Credits visible on the dev.meta.ai dashboard | Balance shows $150 | Set a spend limit; budget assumes ≤ $40 (see [PLAN.md](PLAN.md)) |
+
+**Results so far (2026-10-29):**
+- **G7: pass.** An Expo SDK 58 dev build compiled with Xcode 27.1 on macOS 27.2 and installed on an iPhone 16e running iOS 26.6.2, using a free Personal Team. Installing needed sequential code signing; see `apps/mobile/scripts/build-ios-device.sh`.
+- **G8: credits applied** (reported by the team).
+- **G1–G6:** pending. G1–G4 wait for the API key in `backend/.env`. G5 and G6 wait for the on-device diagnostics run.

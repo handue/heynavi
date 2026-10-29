@@ -42,9 +42,9 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 
 | Milestone | Dates (ET) | Scope | Exit criteria | Rubric | Status |
 |---|---|---|---|---|---|
-| **M0 Gates + scaffold** | Oct 29 | Repo, Expo SDK 58 app, FastAPI service, Meta client, SAM token parser plus unit tests, `bench.py` for gates G1–G4 | `pytest` passes; bench reports p50/p95 for `sam-3.1` and Spark `minimal` with our key | T | Planned |
+| **M0 Gates + scaffold** | Oct 29 | Repo, Expo SDK 58 app, FastAPI service, Meta client, SAM token parser plus unit tests, `bench.py` for gates G1–G4 | `pytest` passes; bench reports p50/p95 for `sam-3.1` and Spark `minimal` with our key | T | **Implemented & tested** (174 backend + 31 app tests). Bench not run yet: waiting for the key |
 | **M1 VS-1 (P0)** | Oct 29–30 | Capture queue, `/v1/detect`, confirmation, announcer v0, TTS, pause/resume, stage metrics | VS-1 acceptance on the iPhone in Expo Go | D, M | Planned |
-| **M2 Dev build + voice (P0)** | Oct 30 | Xcode build, expo-speech-recognition listener + watchdog, EN/KO grammar, echo gate, Magic Tap | VS-2 works; gates G6 and G7 resolved | D, T | Blocked on U1 |
+| **M2 Dev build + voice (P0)** | Oct 30 | Xcode build, expo-speech-recognition listener + watchdog, EN/KO grammar, echo gate, Magic Tap | VS-2 works; gates G6 and G7 resolved | D, T | Dev build done (G7 passed); voice not started |
 | **M3 Active Search agent (P1)** | Oct 30–31 | Full state machine, `/v1/plan` lexicon + Spark, multiple instances, guiding haptics, lost/coaching prompts, cancel/change goal, attribute verify (if G4 allows) | 10 scripted searches logged; 0 repeated "found" announcements; works in Korean | M, T, D | Planned |
 | **M4 Announcer + context (P2)** | Oct 31–Nov 1 | Priorities, dedupe, TTL, preemption, rate limits, stale-goal dropping; Jest tests | Unit tests for every rule; no ambient speech during a search | T | Planned |
 | **M5 Read + describe (P3)** | Nov 1 | Streamed `/v1/read` and `/v1/describe`; repeat / summarize / translate; text-hash dedupe; uncertainty phrasing | Reads 3 real signs; spoken feedback within 300 ms of each request | M, I | Planned |

@@ -4,7 +4,22 @@
 
 Built for the Meta Global AI Developer Hackathon 2026 (Indie Developer Track, theme: *Build for Your World*).
 
-> **Status (2026-10-29): planning complete, implementation not started.** See [docs/PLAN.md](docs/PLAN.md) for milestones and what is blocked.
+> **Status (2026-10-29): M0 complete.** The scaffold, Meta API client, SAM parser, benchmark and on-device diagnostics are built and tested. The dev build runs on an iPhone 16e. See [docs/PLAN.md](docs/PLAN.md) for milestones and what is blocked.
+
+## Run locally
+
+All commands run from the repo root on a Mac.
+
+1. **Backend** (put the Meta key in `backend/.env` first, using `backend/.env.example` as the template):
+   `cd backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`
+2. **Metro** (the JavaScript dev server for the app):
+   `cd apps/mobile && npx expo start --dev-client`
+3. **App on a cabled iPhone** (rebuild at least every 7 days with a free Apple ID):
+   `cd apps/mobile && npm run ios:device`
+4. **Tests:** `cd backend && .venv/bin/python -m pytest -q`, and `cd apps/mobile && npm test && npm run typecheck`
+5. **Day-0 benchmark:** `cd backend && .venv/bin/python -m scripts.bench`
+
+`apps/mobile/.env` must set `EXPO_PUBLIC_API_URL` to the Mac's LAN IP (`ipconfig getifaddr en0`) and `EXPO_PUBLIC_HEYNAVI_TOKEN` to the same value as `HEYNAVI_APP_TOKEN` in `backend/.env`. Templates are in the `.env.example` files.
 
 ## What makes it different
 
