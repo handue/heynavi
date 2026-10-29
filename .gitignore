@@ -1,0 +1,26 @@
+# Secrets: never commit real keys
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Benchmark inputs are personal photos; keep them local
+backend/bench/frames/*
+!backend/bench/frames/.gitkeep
+
+# Benchmark results name your photos and hold per-run measurements; keep them local
+backend/bench/results/*
+!backend/bench/results/.gitkeep
+
+# OS / editors
+.DS_Store
