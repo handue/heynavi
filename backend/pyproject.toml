@@ -24,7 +24,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app", "app.meta", "scripts"]
+packages = ["app", "app.meta", "app.routes", "scripts"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -9,14 +9,15 @@ import {
   TTS_AUDIO_CATEGORY,
   isPremiumVoice,
   loadVoices,
+  pickVoice,
   prepareTtsAudioSession,
   voiceQualityLabel,
   type AudioSessionModule,
   type AudioSessionSnapshot,
 } from './tts-helpers.ts';
 
-function voice(identifier: string, quality: 'Default' | 'Enhanced'): Voice {
-  return { identifier, name: identifier, language: 'en-US', quality: quality as VoiceQuality };
+function voice(identifier: string, quality: 'Default' | 'Enhanced', language = 'en-US'): Voice {
+  return { identifier, name: identifier, language, quality: quality as VoiceQuality };
 }
 
 describe('voiceQualityLabel', () => {
@@ -30,6 +31,26 @@ describe('voiceQualityLabel', () => {
     assert.equal(voiceQualityLabel(voice('com.apple.voice.enhanced.en-US.Zoe', 'Enhanced')), 'Enhanced');
     assert.equal(voiceQualityLabel(voice('com.apple.voice.compact.en-US.Samantha', 'Default')), 'Default');
     assert.equal(isPremiumVoice(voice('com.apple.voice.compact.en-US.Samantha', 'Default')), false);
+  });
+});
+
+describe('pickVoice', () => {
+  const voices = [
+    voice('com.apple.voice.compact.en-US.Samantha', 'Default'),
+    voice('com.apple.voice.enhanced.en-GB.Daniel', 'Enhanced', 'en-GB'),
+    voice('com.apple.voice.premium.en-US.Zoe', 'Enhanced'),
+    voice('com.apple.speech.synthesis.voice.Bubbles', 'Enhanced'),
+    voice('com.apple.voice.compact.ko-KR.Yuna', 'Default', 'ko-KR'),
+  ];
+
+  it('prefers premium, then enhanced, and avoids novelty voices', () => {
+    assert.equal(pickVoice(voices, 'en-US')?.identifier, 'com.apple.voice.premium.en-US.Zoe');
+    assert.equal(pickVoice(voices.slice(0, 2), 'en-US')?.identifier, 'com.apple.voice.enhanced.en-GB.Daniel');
+  });
+
+  it('matches the language prefix and returns null when nothing fits', () => {
+    assert.equal(pickVoice(voices, 'ko-KR')?.identifier, 'com.apple.voice.compact.ko-KR.Yuna');
+    assert.equal(pickVoice(voices, 'ja-JP'), null);
   });
 });
 

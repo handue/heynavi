@@ -9,7 +9,14 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from app.images import load_jpeg_data_url, make_synthetic_jpeg
+from app.images import (
+    JPEG_DATA_URL_PREFIX,
+    ImageTooLargeError,
+    InvalidImageError,
+    decode_base64_jpeg,
+    load_jpeg_data_url,
+    make_synthetic_jpeg,
+)
 
 PREFIX = "data:image/jpeg;base64,"
 
@@ -83,3 +90,49 @@ def test_synthetic_jpeg(size: int) -> None:
     assert decode(result.data_url).size == (result.width, result.height)
     assert result.byte_size > 10_000  # noisy enough to be a realistic upload
     assert make_synthetic_jpeg(size, seed=1).data_url != result.data_url
+
+
+def test_data_url_prefix_constant_matches_encoder() -> None:
+    assert JPEG_DATA_URL_PREFIX == PREFIX
+    assert make_synthetic_jpeg(64).data_url.startswith(JPEG_DATA_URL_PREFIX)
+
+
+def test_decode_base64_jpeg_round_trip() -> None:
+    encoded = make_synthetic_jpeg(128)
+    raw = encoded.data_url[len(PREFIX) :]
+    assert decode_base64_jpeg(raw) == base64.b64decode(raw)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "not base64!",
+        "/9j/AAA",  # bad padding
+        "/9j/\nAAAA",  # whitespace inside
+        "/9j_AAAA",  # URL-safe alphabet
+        "/9j/AAAA====",  # excess padding
+        "/9j/AAAAé",  # non-ASCII
+        base64.b64encode(b"\x89PNG\r\n\x1a\n....").decode(),  # valid base64, not a JPEG
+    ],
+)
+def test_decode_base64_jpeg_rejects_invalid(value: str) -> None:
+    with pytest.raises(InvalidImageError) as info:
+        decode_base64_jpeg(value)
+    assert not value or value not in str(info.value)
+
+
+def test_decode_base64_jpeg_rejects_data_url_prefix() -> None:
+    raw = make_synthetic_jpeg(64).data_url
+    with pytest.raises(InvalidImageError, match="data: URL prefix"):
+        decode_base64_jpeg(raw)
+
+
+def test_decode_base64_jpeg_size_limit() -> None:
+    jpeg = b"\xff\xd8\xff" + b"\x00" * 97  # 100 bytes
+    assert decode_base64_jpeg(base64.b64encode(jpeg).decode(), max_bytes=100) == jpeg
+    with pytest.raises(ImageTooLargeError):
+        decode_base64_jpeg(base64.b64encode(jpeg + b"\x00").decode(), max_bytes=100)
+    # Too long to fit is rejected by length alone, even when it is not base64 at all.
+    with pytest.raises(ImageTooLargeError):
+        decode_base64_jpeg("!" * 1000, max_bytes=100)

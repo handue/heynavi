@@ -115,5 +115,33 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 
 **Results so far (2026-10-29):**
 - **G7: pass.** An Expo SDK 58 dev build compiled with Xcode 27.1 on macOS 27.2 and installed on an iPhone 16e running iOS 26.6.2, using a free Personal Team. Installing needed sequential code signing; see `apps/mobile/scripts/build-ios-device.sh`.
-- **G8: credits applied** (reported by the team).
-- **G1–G6:** pending. G1–G4 wait for the API key in `backend/.env`. G5 and G6 wait for the on-device diagnostics run.
+- **G8: credits applied** (reported by the team). Meta documents no API for reading credit balance or per-request cost. Each SAM response reports `usage.images_processed: 1`, the per-image billing unit. The deduction itself shows only on the dev.meta.ai billing page.
+
+**Meta API results, measured 2026-10-29** with our key, from the Mac to `api.meta.ai` over home Internet, using `scripts.bench --synthetic`:
+
+| Gate | Result |
+|---|---|
+| G1 models | **pass**: 9 models visible, including `sam-3.1` and `muse-spark-1.3`. `GET /v1/models` took 772 ms |
+| G3 JPEG data URL | **pass**: first cold call took 869 ms. Responses echo `store: false` |
+| G2 SAM 3.1, 768 px | **pass**: median 569 ms, 95th percentile 1,332 ms (min 211, max 1,503; 10 calls, 0 errors) |
+| G2 SAM 3.1, 1008 px | **pass**: median 357 ms, 95th percentile 712 ms (min 208, max 763; 10 calls, 0 errors) |
+| G4 Muse Spark 1.3, `minimal` effort | **measured**: median 2,764 ms, 95th percentile 2,901 ms (3 calls). All replies were valid JSON and finished normally. Averages: 563 input / 258 output tokens, including 174 reasoning tokens |
+| Run cost | at most $0.058 |
+
+- **Muse Spark is much faster than the third-party figure.** At `minimal` effort it took about 2.8 s, not the 15–26 s Roboflow reported at `low` effort. It can serve planning, verification and reading behind "one moment" feedback. It is still too slow to call on every frame.
+- **SAM parsing is confirmed on real output:** 11 "rectangle" boxes at confidence about 0.89 on the shapes image, and 0 false "chair" detections.
+- **Sample size:** each run was only 10 calls, so the 768 px vs 1008 px difference is not significant yet. Re-measure from the phone.
+- **G5 shutter sound: pass.** iPhone 16e with Silent Mode on: no shutter click during the M1 search loop, which uses `takePictureAsync({shutterSound:false})` about once per second. The VisionCamera fallback is not needed.
+- **G6 on-device speech recognition:** pending. It is only needed for M2 voice commands.
+
+**First live run of the M1 search loop, 2026-10-29.** iPhone 16e on home Wi-Fi to the backend on the Mac, then to `sam-3.1`. Two sessions, 30 frames, 0 failures. Medians per frame from the app's `[heynavi-metrics]` log:
+
+| Stage | Median (p50) | 95th percentile (p95) |
+|---|---|---|
+| Capture (`takePictureAsync`, 1280×720 preset) | 394–425 ms | 665–936 ms |
+| Resize and JPEG encode (768 px) | 53–55 ms | 57–117 ms |
+| Round trip, phone → backend → SAM → phone | 610–850 ms | 1,541–1,763 ms |
+| SAM 3.1 inside the backend | 451–704 ms | 1,383–1,633 ms |
+| **Full cycle per frame** | **1,130–1,482 ms** | **2,103–2,324 ms** |
+
+SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the last 3 frames to agree, so the chair is announced about 2.5–3 s after it enters the view.

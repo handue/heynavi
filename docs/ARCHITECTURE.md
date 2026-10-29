@@ -234,11 +234,11 @@ Error handling: retry once on 429/503 with jitter, honoring `Retry-After`. Never
 | Capture (`takePictureAsync`, 1280×720 preset) | ≤ 400 ms | unmeasured estimate |
 | Resize + JPEG encode (768 px, q 0.6) | ≤ 100 ms | unmeasured estimate |
 | Upload phone → backend | ≤ 300 ms | network dependent |
-| `sam-3.1` round trip | ≤ 1,000 ms | **unpublished**, gate G2 |
+| `sam-3.1` round trip | ≤ 1,000 ms | **Measured from the Mac:** median 569 ms / 95th percentile 1,332 ms at 768 px; median 357 ms / 95th percentile 712 ms at 1008 px |
 | Confirmation (2 of 3 frames) | about 2 cycles | design |
 | **Object in view → "found" spoken** | **≤ 4 s** | target |
 | "Stop" → speech stops | ≤ 500 ms | target (interim result + `Speech.stop()`) |
-| Describe/read → first spoken word | ≤ 300 ms (earcon) / content when Spark returns | gate G4 |
+| Describe/read → first spoken word | ≤ 300 ms (earcon) / content when Spark returns | **Measured:** Muse Spark at `minimal` effort, median 2.76 s for a short JSON reply on one 768 px frame |
 
 ## 9. Privacy and safety
 

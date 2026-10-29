@@ -130,6 +130,32 @@ async def test_only_one_retry_then_raises(client: MetaClient, meta: respx.MockRo
     assert (info.value.status, info.value.code, info.value.retry_after) == (429, "rate_limit_exceeded", 3.0)
 
 
+@pytest.mark.parametrize("status", [429, 503])
+async def test_retry_false_makes_exactly_one_attempt(
+    client: MetaClient, meta: respx.MockRouter, sleep: FakeSleep, status: int
+) -> None:
+    route = meta.post("/responses").mock(
+        side_effect=[
+            httpx.Response(status, headers={"Retry-After": "1"}, json=error_body("rate_limit_exceeded")),
+            httpx.Response(200, json={"id": "never"}),
+        ]
+    )
+    with pytest.raises(MetaAPIError) as info:
+        await client.create_response({}, retry=False)
+    assert route.call_count == 1
+    assert sleep.calls == []
+    assert client.last_attempts == 1
+    assert (info.value.status, info.value.retry_after) == (status, 1.0)
+
+
+async def test_per_call_timeout_is_passed_to_httpx(client: MetaClient, meta: respx.MockRouter) -> None:
+    route = meta.post("/responses").respond(200, json={"id": "ok"})
+    await client.create_response({}, timeout=1.5, retry=False)
+    assert route.calls.last.request.extensions["timeout"] == {
+        "connect": 1.5, "read": 1.5, "write": 1.5, "pool": 1.5
+    }
+
+
 @pytest.mark.parametrize("status", [504, 400, 401, 404, 500])
 async def test_no_retry_on_504_or_other_errors(
     client: MetaClient, meta: respx.MockRouter, sleep: FakeSleep, status: int
@@ -149,6 +175,7 @@ async def test_content_policy_violation_is_mapped(client: MetaClient, meta: resp
     with pytest.raises(MetaAPIError) as info:
         await client.create_response({})
     assert info.value.code == "content_policy_violation"
+    assert info.value.code_from_body is True
     assert info.value.message == "Request blocked by content policy"
 
 
@@ -161,10 +188,11 @@ async def test_error_code_falls_back_to_type_then_status(client: MetaClient, met
     )
     with pytest.raises(MetaAPIError) as first:
         await client.create_response({})
-    assert first.value.code == "content_policy_violation"
+    # The type is kept for diagnostics, but flagged as not Meta's own error code.
+    assert (first.value.code, first.value.code_from_body) == ("content_policy_violation", False)
     with pytest.raises(MetaAPIError) as second:
         await client.create_response({})
-    assert (second.value.status, second.value.code) == (504, "http_504")
+    assert (second.value.status, second.value.code, second.value.code_from_body) == (504, "http_504", False)
 
 
 async def test_key_never_appears_in_exception_text(
@@ -325,6 +353,54 @@ def test_parse_retry_after() -> None:
     assert parse_retry_after("-3") == 0.0
     assert parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT") == 0.0  # date in the past
     assert parse_retry_after("soon") is None
+    for value in ("inf", "Infinity", "-inf", "1e400", "nan"):
+        assert parse_retry_after(value) is None, value
+    assert parse_retry_after("1e300") == 1e300
+
+
+async def test_non_finite_retry_after_uses_the_default_wait(
+    client: MetaClient, meta: respx.MockRouter, sleep: FakeSleep
+) -> None:
+    meta.post("/responses").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "inf"}, json=error_body("rate_limit_exceeded")),
+            httpx.Response(200, json={"id": "ok"}),
+        ]
+    )
+    assert (await client.create_response({}))["id"] == "ok"
+    assert len(sleep.calls) == 1 and 1.0 <= sleep.calls[0] <= 1.0 + MAX_JITTER_SECONDS
+
+
+@pytest.mark.parametrize(
+    "body", [{"id": "r"}, {"id": "r", "status": "completed", "error": None}, {"status": "completed", "error": {}}]
+)
+def test_ensure_completed_accepts_finished_responses(client: MetaClient, body: dict[str, object]) -> None:
+    client.ensure_completed(body)
+
+
+@pytest.mark.parametrize(
+    ("body", "code", "from_body"),
+    [
+        ({"status": "failed", "error": {"code": "server_error", "message": "x"}, "output": []}, "server_error", True),
+        ({"status": "failed", "error": {"type": "server_error_type"}}, "server_error_type", False),
+        ({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}}, "response_incomplete", False),
+        ({"status": "in_progress"}, "response_in_progress", False),
+        ({"status": "completed", "error": "something broke"}, "response_completed", False),
+    ],
+)
+def test_ensure_completed_raises_for_unfinished_responses(
+    client: MetaClient, body: dict[str, object], code: str, from_body: bool
+) -> None:
+    with pytest.raises(MetaAPIError) as info:
+        client.ensure_completed(body)
+    assert (info.value.status, info.value.code, info.value.code_from_body) == (200, code, from_body)
+
+
+def test_ensure_completed_scrubs_the_key(client: MetaClient) -> None:
+    with pytest.raises(MetaAPIError) as info:
+        client.ensure_completed({"status": "failed", "error": {"code": f"c_{TEST_KEY}", "message": f"m {TEST_KEY}"}})
+    for text in (str(info.value), repr(info.value), info.value.code, info.value.message):
+        assert TEST_KEY not in text
 
 
 def test_from_settings_requires_key() -> None:

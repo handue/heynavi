@@ -19,6 +19,10 @@ No HeyNavi code existed before the event.
 |---|---|---|
 | 2026-10-29 | Feasibility research (Meta Model API, SAM 3.1, Expo camera, iOS voice, rules) with source-checked findings. Architecture, plan and demo outline | `docs/FEASIBILITY.md`, `docs/ARCHITECTURE.md`, `docs/PLAN.md` |
 | 2026-10-29 | **M0.** Expo SDK 58 app scaffold (`apps/mobile`): camera, speech recognition, TTS, haptics, dev client. FastAPI backend (`backend/`): Meta Model API client, SAM 3.1 request builder and output parser, Muse Spark probe, `/health`, app-token auth, Day-0 benchmark script, test suite. On-device diagnostics screen for gates G5/G6. Dev build compiled with Xcode 27.1 and installed on an iPhone 16e (gate G7 passed). | `backend/`, `apps/mobile/`, `apps/mobile/scripts/build-ios-device.sh` |
+| 2026-10-29 | Day-0 gates against the real Meta API: G1, G2, G3 pass; G4 measured (Muse Spark `minimal` median 2.8 s); run cost at most $0.06. | `docs/FEASIBILITY.md` |
+| 2026-10-29 | **M1 (VS-1).** Backend `POST /v1/detect`: SAM 3.1, strict validation, no retry on the main loop, body limit, token checked before the body is read. App: camera search session, 2-of-3 spatial confirmation state machine, priority/dedupe announcer, English and Korean phrases, haptics, metrics. First live search on the iPhone 16e found a real chair. G5 passed (no shutter sound). | `backend/app/routes/detect.py`, `apps/mobile/src/agent/`, `apps/mobile/src/session/`, `apps/mobile/src/app/session.tsx` |
+
+**Known limitation (M1):** VoiceOver Magic Tap doesn't reach the app in React Native 0.88: the JavaScript side passes the prop under a different name than the native side reads. The large Start/Stop button is the accessible control for now. Fixing it needs a React Native patch, planned for M2.
 
 ## AI assistance disclosure
 
