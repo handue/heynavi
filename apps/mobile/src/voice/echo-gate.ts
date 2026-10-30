@@ -1,5 +1,5 @@
 /**
- * Echo gate (ARCHITECTURE 6): the microphone hears HeyNavi's own speech through the loudspeaker,
+ * Echo gate (ARCHITECTURE 9): the microphone hears HeyNavi's own speech through the loudspeaker,
  * so every transcript passes here before it may act. Pure, so it runs under `node --test`.
  *
  * Rules, in order:

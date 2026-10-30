@@ -1,5 +1,5 @@
 /**
- * Active Object Search state machine (ARCHITECTURE 4.2) as a pure reducer:
+ * Active Object Search state machine (ARCHITECTURE 5.1) as a pure reducer:
  * (state, event, now) -> { state, effects }. The session runs the effects (speech, haptics).
  *
  * FOUND and LOST are transient: they are reported for one frame, and the next frame is handled
