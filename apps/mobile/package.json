@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/ui": "~58.0.25",
+    "@shopify/react-native-skia": "2.14.0",
     "expo": "~58.0.21",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.14",

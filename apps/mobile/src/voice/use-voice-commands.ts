@@ -8,6 +8,7 @@ import { AppState, Linking, Platform } from 'react-native';
 
 import { TTS_AUDIO_CATEGORY } from '@/diagnostics/tts-helpers';
 import { CONTEXTUAL_STRINGS } from '@/voice/command-grammar';
+import { setMicVolume } from '@/voice/mic-level';
 import type { SpeechTracker } from '@/voice/speech-tracker';
 import {
   createVoiceController,
@@ -108,14 +109,20 @@ export function useVoiceCommands(speech: SpeechTracker, handlers: VoiceCommandHa
     if (!module) return;
     const subscriptions = [
       module.addListener('start', () => controller.handleStart()),
-      module.addListener('end', () => controller.handleEnd()),
+      module.addListener('end', () => {
+        setMicVolume(-2);
+        controller.handleEnd();
+      }),
       module.addListener('error', (event) => controller.handleError(event.error, event.message)),
       module.addListener('result', (event) =>
         controller.handleResult(event.isFinal, event.results[0]?.transcript ?? ''),
       ),
       // A segment that ended without words sends this instead of a final "result".
       module.addListener('nomatch', () => controller.handleNoMatch()),
-      module.addListener('volumechange', () => controller.handleVolume()),
+      module.addListener('volumechange', (event) => {
+        setMicVolume(event.value);
+        controller.handleVolume();
+      }),
     ];
     return () => {
       for (const subscription of subscriptions) subscription.remove();

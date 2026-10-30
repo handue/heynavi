@@ -3,18 +3,23 @@ import type { CameraView } from 'expo-camera';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
+import { useSharedValue } from 'react-native-reanimated';
 
-import { createAnnouncer, type Announcer } from '@/agent/announcer';
+import { createAnnouncer, type Announcement, type Announcer } from '@/agent/announcer';
 import { phrases } from '@/agent/phrases';
 import { isActive } from '@/agent/search-machine';
-import { askQuestion, describeScene, detect } from '@/api/client';
+import { askQuestion, describeScene, detect, postMetrics } from '@/api/client';
 import { playHaptic } from '@/feedback/haptics';
 import { SCENE_CAPTURE, SESSION_CAPTURE, captureFrame, type CaptureOptions } from '@/perception/capture';
+import { IDENTITY, turnAngle, type Quaternion } from '@/perception/motion';
 import { createOrientationSampler, type OrientationSampler } from '@/perception/orientation-sampler';
 import { createSceneController, type SceneController } from '@/scene/scene-controller';
 import { scenePhrases } from '@/scene/scene-phrases';
 import { createSearchController, type FrameCapture, type SearchController } from '@/session/search-controller';
+import { createMetricsUploader, type MetricsUploader } from '@/session/metrics-uploader';
 import { hasSearch, planCommand, startsSearch, stopsSpeech } from '@/session/voice-actions';
+import { getSettings, subscribeSettings, updateSettings } from '@/settings/app-settings';
+import { SPEECH_RATE } from '@/settings/settings-schema';
 import type { HeardCommand } from '@/voice/voice-controller';
 import { createExpoSpeaker } from '@/voice/speaker';
 import { createSpeechTracker, type SpeechTracker } from '@/voice/speech-tracker';
@@ -28,6 +33,22 @@ import { useVoiceCommands } from '@/voice/use-voice-commands';
 
 const KEEP_AWAKE_TAG = 'heynavi-session';
 
+/**
+ * What the caption card shows: the last spoken line and what kind of line it was. `description`
+ * answers "what's around me", `answer` a question; `scene` is an automatic update and `status`
+ * everything else (paused, not understood, search results).
+ */
+export type Caption = { text: string; kind: 'obstacle' | 'maybe' | 'description' | 'answer' | 'scene' | 'status' };
+
+export function captionKind(announcement: Pick<Announcement, 'key' | 'text' | 'channel'>): Caption['kind'] {
+  if (announcement.text.startsWith('Possible obstacle')) return 'obstacle';
+  if (announcement.text.startsWith('There may be')) return 'maybe';
+  if (announcement.key.startsWith('reply:describe')) return 'description';
+  if (announcement.key.startsWith('reply:ask')) return 'answer';
+  if (announcement.channel === 'camera') return 'scene';
+  return 'status';
+}
+
 type Session = {
   controller: SearchController;
   scene: SceneController;
@@ -37,8 +58,9 @@ type Session = {
   /** A spoken reply to the user (priority 0). */
   reply(key: string, text: string): void;
   orientation: OrientationSampler;
+  uploader: MetricsUploader;
   /** The line HeyNavi most recently started speaking, shown as a caption. */
-  caption: { subscribe(listener: () => void): () => void; get(): string | null };
+  caption: { subscribe(listener: () => void): () => void; get(): Caption | null };
   attachCamera: (camera: CameraView | null) => void;
 };
 
@@ -51,22 +73,29 @@ type Session = {
 function createSession(onDetach: () => void): Session {
   let camera: CameraView | null = null;
   const now = () => performance.now();
-  const speech = createSpeechTracker(createExpoSpeaker(), { now });
+  // Metric lines go to Metro's log and to the backend (runs without Metro still leave evidence).
+  const metricsSession = uuid.v4();
+  const uploader = createMetricsUploader({ post: (lines) => postMetrics(metricsSession, lines) });
+  const log = (line: string) => {
+    console.log(line);
+    uploader.push(line);
+  };
+  const speech = createSpeechTracker(createExpoSpeaker(() => SPEECH_RATE[getSettings().speechSpeed]), { now });
   const stopLatency = createStopLatencyMeter();
   speech.subscribe((event) => {
     if (event.type === 'end' && stopLatency.ended(event.id, event.at)) {
-      console.log(stopLatencyLogLine(stopLatency.summary()));
+      log(stopLatencyLogLine(stopLatency.summary()));
     }
   });
   // Bound below; the announcer reports speech starts to it for the frame-to-speech metric.
   let scene: SceneController | null = null;
-  let lastSaid: string | null = null;
+  let lastSaid: Caption | null = null;
   const captionListeners = new Set<() => void>();
   const announcer = createAnnouncer(speech.speaker, {
     now,
     onSpeechStart: (announcement, at) => {
       scene?.speechStarted(announcement, at);
-      lastSaid = announcement.text;
+      lastSaid = { text: announcement.text, kind: captionKind(announcement) };
       for (const listener of captionListeners) listener();
     },
     onDrop: __DEV__
@@ -92,7 +121,7 @@ function createSession(onDetach: () => void): Session {
     now,
     newGoalId: () => uuid.v4(),
     // Shows up in the Metro log; carries timings and the concept only.
-    log: (line) => console.log(line),
+    log,
   });
   const sceneController = createSceneController({
     capture: capture(SCENE_CAPTURE),
@@ -102,11 +131,12 @@ function createSession(onDetach: () => void): Session {
     hold: () => orientation.current(),
     now,
     newSessionId: () => uuid.v4(),
-    log: (line) => console.log(line),
+    log,
     // Summaries, labels and spoken lines describe the user's surroundings: development logs only.
     devLog: __DEV__ ? (line) => console.log(line) : undefined,
   });
   scene = sceneController;
+  sceneController.setVerbosity(getSettings().verbosity);
   // Scene updates pause while a search runs (or is paused) and come back when it ends.
   controller.subscribe(() => {
     if (hasSearch(controller.getSnapshot().search.status)) sceneController.pause('search');
@@ -119,6 +149,7 @@ function createSession(onDetach: () => void): Session {
     speech,
     stopLatency,
     orientation,
+    uploader,
     reply: (key, text) =>
       announcer.announce({
         key: `reply:${key}`,
@@ -156,12 +187,38 @@ function createSession(onDetach: () => void): Session {
  */
 export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) {
   const [cameraReady, setCameraReady] = useState(false);
-  const [{ controller, scene, announcer, speech, stopLatency, orientation, reply, caption, attachCamera }] = useState(() =>
+  const [{ controller, scene, announcer, speech, stopLatency, orientation, uploader, reply, caption, attachCamera }] = useState(() =>
     createSession(() => setCameraReady(false)),
   );
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const sceneSnapshot = useSyncExternalStore(scene.subscribe, scene.getSnapshot);
   const lastSaid = useSyncExternalStore(caption.subscribe, caption.get);
+  const settings = useSyncExternalStore(subscribeSettings, getSettings);
+  const [speaking, setSpeaking] = useState(false);
+  useEffect(() => speech.subscribe(() => setSpeaking(speech.speaking)), [speech]);
+
+  // How the phone has turned since the frame of the scene boxes was taken, 30 times a second, for
+  // the overlay to keep them on their objects (UI thread; no re-render).
+  const boxTurn = useSharedValue<Quaternion>(IDENTITY);
+  const boxesFrameAt = sceneSnapshot.boxesFrameAt;
+  useEffect(() => {
+    boxTurn.value = IDENTITY;
+    if (boxesFrameAt == null) return;
+    if (__DEV__) {
+      const turn = orientation.turnSince(boxesFrameAt);
+      const age = ((performance.now() - boxesFrameAt) / 1000).toFixed(1);
+      console.log(`[heynavi-motion] boxes frame age=${age}s turned=${turn ? ((turnAngle(turn) * 180) / Math.PI).toFixed(1) : '-'}deg`);
+    }
+    const timer = setInterval(() => {
+      boxTurn.value = orientation.turnSince(boxesFrameAt) ?? IDENTITY;
+    }, 33);
+    return () => clearInterval(timer);
+  }, [boxesFrameAt, boxTurn, orientation]);
+
+  // Settings changed on the Settings screen apply to the open session.
+  useEffect(() => {
+    scene.setVerbosity(settings.verbosity);
+  }, [scene, settings.verbosity]);
   /** The search target, from voice ("find a chair", "where is the entrance"). */
   const [concept, setConcept] = useState<string>('chair');
   const status = snapshot.search.status;
@@ -176,13 +233,17 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
       controller.shutdown();
       scene.shutdown();
       orientation.stop();
+      uploader.stop();
     },
-    [controller, scene, orientation],
+    [controller, scene, orientation, uploader],
   );
 
-  // The primary experience: exploring starts by itself once the camera can deliver frames.
+  // The primary experience: exploring starts by itself once the camera can deliver frames, unless
+  // spoken updates are turned off in Settings (then HeyNavi answers only when asked).
   useEffect(() => {
-    if (canSearch) scene.start();
+    if (!canSearch) return;
+    if (!getSettings().autoUpdates) scene.pause('user');
+    scene.start();
   }, [canSearch, scene]);
 
   // No camera in the background: pause there, and resume only what the background paused. A
@@ -206,10 +267,15 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
    * t0 of a stop-latency sample: whatever is being spoken now must go silent. A stop with nothing
    * playing gives no sample, but is logged too, so a tester sees every stop.
    */
+  function uploaderLog(line: string) {
+    console.log(line);
+    uploader.push(line);
+  }
+
   function markStop(source: StopSource, at: number = performance.now()) {
     const playing = speech.activeIds();
     stopLatency.requested(source, at, playing);
-    if (playing.length === 0) console.log(stopLatencyLogLine(stopLatency.summary(), { silentStop: source }));
+    if (playing.length === 0) uploaderLog(stopLatencyLogLine(stopLatency.summary(), { silentStop: source }));
   }
 
   function holdUpdates(source: StopSource) {
@@ -261,6 +327,7 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
   }
 
   function describe() {
+    if (__DEV__) console.log('[heynavi-ui] describe');
     reply('describe-ack', scenePhrases.describeAck());
     scene.describeNow();
   }
@@ -334,6 +401,7 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
           break;
         case 'verbosity': {
           const changed = scene.stepVerbosity(action.delta);
+          if (changed) updateSettings({ verbosity: scene.verbosity });
           reply(
             'verbosity',
             changed ? scenePhrases.verbosity(scene.verbosity) : scenePhrases.verbosityLimit(scene.verbosity),
@@ -371,7 +439,9 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
     onCameraReady,
     snapshot,
     sceneSnapshot,
+    boxTurn,
     lastSaid,
+    speaking,
     concept,
     active,
     searching,

@@ -16,8 +16,14 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.white },
         }}>
         <Stack.Screen name="index" options={{ title: 'HeyNavi', headerShown: false }} />
-        {/* Not "HeyNavi": VoiceOver reads the title aloud while the app listens for "Hey Navi". */}
-        <Stack.Screen name="session" options={{ title: 'Object search', headerBackTitle: 'Home' }} />
+        {/* The session draws its own top bar over the camera (wireframe 02). */}
+        <Stack.Screen name="session" options={{ title: 'Camera', headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="settings"
+          options={{ title: 'Settings', headerBackTitle: 'Back', headerStyle: { backgroundColor: colors.canvas }, contentStyle: { backgroundColor: colors.canvas } }}
+        />
+        <Stack.Screen name="backend" options={{ title: 'Server', headerBackTitle: 'Home' }} />
         <Stack.Screen
           name="diagnostics"
           options={{

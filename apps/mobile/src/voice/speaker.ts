@@ -24,7 +24,7 @@ const audioSessionModule =
  * so a speak() issued right after stop() waits for that stop to finish; a stop() issued before
  * the queued speak() ran cancels it.
  */
-export function createExpoSpeaker(): Speaker {
+export function createExpoSpeaker(rate: () => number = () => 1): Speaker {
   let voices: Speech.Voice[] = [];
   void loadVoices(Speech.getAvailableVoicesAsync).then((loaded) => {
     voices = loaded;
@@ -66,6 +66,7 @@ export function createExpoSpeaker(): Speaker {
         }
         Speech.speak(text, {
           language: lang,
+          rate: rate(),
           voice: pickVoice(voices, lang)?.identifier,
           onStart: callbacks.onStart,
           onDone: callbacks.onDone,

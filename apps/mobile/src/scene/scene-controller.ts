@@ -86,6 +86,8 @@ export type SceneSnapshot = {
   items: readonly MemoryItem[];
   /** SAM boxes of the latest reply, for the preview overlay; empty while paused. */
   boxes: readonly SceneBox[];
+  /** When the frame of `boxes` was captured (deps.now() time), for keeping them on their objects. */
+  boxesFrameAt: number | null;
   /** How the phone was held for the latest frame (sets the wording of directions). */
   hold: HoldReading | null;
   calls: number;
@@ -115,6 +117,7 @@ export type SceneController = {
   ask(question: string): Promise<{ searchFor: string | null }>;
   /** Steps verbosity; returns false at either end. */
   stepVerbosity(delta: 1 | -1): boolean;
+  setVerbosity(verbosity: Verbosity): void;
   readonly verbosity: Verbosity;
   /** Forwarded from the announcer: logs frame-to-speech latency of scene lines. */
   speechStarted(announcement: Announcement, at: number): void;
@@ -155,6 +158,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
   let policy: PolicyState = INITIAL_POLICY;
   let lastSummary: string | null = null;
   let boxes: SceneBox[] = [];
+  let boxesFrameAt: number | null = null;
   let lastHold: HoldReading | null = null;
   let loop: AbortController | null = null;
   let oneShot: AbortController | null = null;
@@ -196,6 +200,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       summary: lastSummary,
       items: memory.items,
       boxes,
+      boxesFrameAt,
       hold: lastHold,
       calls,
       lastRttMs: last?.rttMs ?? null,
@@ -353,6 +358,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       if (data.summary) lastSummary = data.summary;
       const byKey = new Map(memory.items.map((i) => [i.key, i]));
       // Boxes only for walking-relevant things SAM found: no outlines around pictures or screens.
+      boxesFrameAt = frameAt;
       boxes = merged.reported.flatMap((item) => {
         const remembered = byKey.get(item.key);
         if (!remembered?.box || item.grounded !== true || !walkingRelevant(remembered)) return [];
@@ -389,6 +395,8 @@ export function createSceneController(deps: SceneDeps): SceneController {
           frame: frameId,
           captureMs: frame.captureMs,
           processMs: frame.processMs,
+          // Portrait frames (width < height) map 1:1 onto the portrait view; a landscape one would not.
+          size: frame.width && frame.height ? `${frame.width}x${frame.height}` : null,
           rttMs: round(receivedAt - sentAt),
           sparkMs: data.timings_ms?.spark ?? null,
           samMs: data.timings_ms?.sam ?? null,
@@ -528,7 +536,10 @@ export function createSceneController(deps: SceneDeps): SceneController {
       }
       if (unspeakableReason(text) != null) text = scenePhrases.cannotAnswer();
       reply(key, text);
-      if (about && box) boxes = [{ key: `ask:${about.label}`, label: about.label, detection: box, obstacle: false }];
+      if (about && box) {
+        boxes = [{ key: `ask:${about.label}`, label: about.label, detection: box, obstacle: false }];
+        boxesFrameAt = frameAt;
+      }
       costUsd += data.cost_usd ?? 0;
       deps.log(
         metricsLine({
@@ -590,6 +601,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
         stopLoop();
         describePending = false;
         boxes = [];
+        boxesFrameAt = null;
         announcer.clearChannel('camera');
         logSummary('pause');
       }
@@ -636,6 +648,12 @@ export function createSceneController(deps: SceneDeps): SceneController {
       return true;
     },
 
+    setVerbosity(next) {
+      if (next === verbosity) return;
+      verbosity = next;
+      publish();
+    },
+
     get verbosity() {
       return verbosity;
     },
@@ -666,6 +684,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       policy = INITIAL_POLICY;
       lastSummary = null;
       boxes = [];
+      boxesFrameAt = null;
       describePending = false;
       pendingLines.clear();
       metrics = [];

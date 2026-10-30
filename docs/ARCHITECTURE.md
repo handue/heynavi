@@ -133,18 +133,21 @@ The scene track pauses during a search and keeps running during navigation, wher
 
 HeyNavi is not an object picker. The camera session has no list of objects to choose from and no detection dashboard. The core loop is: open HeyNavi → the camera observes → the AI understands → HeyNavi speaks on its own → the user answers by voice.
 
-Top to bottom:
+Layout (wireframes 02–04, approved on the iPhone 16e 2026-10-30): the camera preview fills the whole screen and everything floats over it.
 
-1. **Camera preview** (9:16, the largest element). A tap anywhere on it does the same as Magic Tap. While a search runs, SAM's box for the target is drawn on it; a small latency readout (SAM or Spark) sits in a corner for the demo.
-2. **Status.** While observing: a chip ("Observing", "Observing paused", "Starting the camera") and the update level. While a search runs: the search strip (target, state, 3-dot confirmation).
-3. **Last said.** The line HeyNavi is speaking or last spoke, as text, for low-vision users and sighted helpers.
-4. **Mic status**, with its on/off control (M2).
-5. **One primary button**: "Pause observing" / "Resume observing", or "End search" while a search runs.
-6. **One secondary button**: "Describe the view" (the touch version of "What's around me").
+1. **Camera preview**, kept at the capture's 9:16 and covering the screen (on a tall phone a sliver of each side is off screen; the models still get the whole frame). A tap anywhere does the same as Magic Tap.
+2. **Top bar**: round close and settings buttons on dark glass, a light frosted voice pill ("HeyNavi is listening…", "HeyNavi is speaking…", "HeyNavi is thinking…", "Caution ahead" while a possible obstacle is spoken, or the mic state), and a small status chip ("Observing", "Observing paused", "Searching: …"). VoiceOver reads the pill as "Voice status: Listening" etc., never with "HeyNavi" in it.
+3. **Boxes** (`session/detection-overlay.tsx`): only real SAM 3.1 detections. Meta-blue rounded outlines with a soft glow, corner anchor dots and a name tag above each box; a confirmed possible obstacle in red with an alert icon. Boxes fade in, glide when the same object is found again, and fade out. A box describes a frame taken ~4–5 s earlier, so it moves with the phone: the gyroscope is integrated into a rotation history (`perception/orientation-sampler.ts`), and the overlay shifts each box by how far the phone turned since its frame (`perception/motion.ts`, on the UI thread). Beyond 30° of turning the boxes hide; walking toward something is not corrected, so boxes dim as they age. No floor paths, zones or distances.
+4. **Caption card** (`session/caption-card.tsx`): the line being spoken. Descriptions, answers and possible obstacles get a white card with an icon and a title ("Scene description", "Answer", "Potential obstacle", "Not confirmed"); automatic updates and status lines a compact dark bubble. It leaves a few seconds after the speech, except with VoiceOver on.
+5. **Controls** (`session/control-bar.tsx`): round buttons over a soft gradient, no panel: Pause / Resume observing (End search during a search), the HeyNavi symbol as the "Describe the view" button, and the microphone.
 
 Everything else is voice: "What's around me", "Find a chair", "Where is the entrance", "quieter", "more detail", "pause", "resume", "repeat", "cancel". Active Object Search keeps its engine (M1–M2) and is started only by voice; the target is whatever noun phrase the user says. Magic Tap: silence speech, else end a search, else pause or resume observing. The VoiceOver escape gesture ends a search and goes back.
 
-Labels and hints are read aloud by VoiceOver and heard by the microphone, so none is a voice command, none starts with "stop", and none contains the wake word (unit-tested). A route card for navigation (M5) will join the status area only while a route is active.
+Labels and hints are read aloud by VoiceOver and heard by the microphone, so none is a voice command, none starts with "stop", and none contains the wake word (unit-tested). A route card for navigation (M6) will join the caption area only while a route is active.
+
+### 3.4 The HeyNavi symbol
+
+A living, translucent blue jelly (`components/orb.tsx`), the same on Home, onboarding and the camera's center button. It is a Skia runtime shader (`components/jelly-shader.ts`, `@shopify/react-native-skia`): four folded lobes around a core, ray-marched in 3D, with color deepening where lobes overlap, a rim light and a highlight. `components/jelly-motion.ts` computes the per-frame uniforms on the UI thread (Reanimated): a full 3D turn every 30 s at rest while the lobes drift, twist and wobble; every motion is a whole number of cycles of one loop, so it never resets. Modes ease into each other: idle (calm), listening (a ripple that follows the microphone level from the recognizer's volume events), thinking (a describe or question in flight: the lobes flow more), speaking (livelier, a gentle swell). It pauses while its screen is not focused and holds a still pose with Reduce Motion; it is hidden from VoiceOver. Measured on the iPhone 16e: 60 fps on Home and ~59.8 fps on the camera screen with the camera running (development build, `[heynavi-perf]` log).
 
 ## 4. Continuous Scene Understanding (primary)
 

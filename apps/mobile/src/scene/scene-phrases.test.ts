@@ -112,3 +112,14 @@ describe('unspeakableReason', () => {
     assert.equal(unspeakableReason('A hallway with a door on the right.'), null);
   });
 });
+
+describe('the spoken introduction', () => {
+  it('says the safety lines, never the wake word, and no clause is a command', () => {
+    const intro = scenePhrases.intro();
+    assert.match(intro, /cane, guide dog, or mobility training/);
+    assert.match(intro, /can't tell whether it's safe/);
+    assert.doesNotMatch(intro, /navi|navy/i);
+    assert.equal(parse(intro), null);
+    for (const clause of clauses(intro)) assert.equal(parse(clause), null, clause);
+  });
+});

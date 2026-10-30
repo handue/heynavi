@@ -1,4 +1,4 @@
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { AppText } from '@/components/app-text';
 import { formatMs } from '@/lib/stats';
@@ -13,13 +13,15 @@ type Props = {
   frames: number;
   /** A third line, e.g. how the phone is held. */
   note?: string;
+  /** Overrides the position (default: bottom left of the preview). */
+  style?: StyleProp<ViewStyle>;
 };
 
 /** Small latency readout on the preview, for the demo and for tuning. */
-export function LatencyHud({ model, lastRttMs, p50RttMs, lastModelMs, frames, note }: Props) {
+export function LatencyHud({ model, lastRttMs, p50RttMs, lastModelMs, frames, note, style }: Props) {
   return (
     <View
-      style={styles.hud}
+      style={[styles.hud, style]}
       accessible
       accessibilityLabel={`Latency: round trip ${formatMs(lastRttMs)}, median ${formatMs(p50RttMs)}, ${model} ${formatMs(lastModelMs)}, ${frames} frames`}>
       <AppText variant="caption" tone="inverse">
