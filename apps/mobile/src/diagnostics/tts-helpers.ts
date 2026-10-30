@@ -66,24 +66,67 @@ export const TTS_AUDIO_CATEGORY: SetCategoryOptions = {
  * Configures and activates the shared AVAudioSession before speak(), then reads it back so the
  * report shows what was actually in effect. A null module (Expo Go) changes nothing.
  */
-export function prepareTtsAudioSession(module: AudioSessionModule | null): {
+export function prepareTtsAudioSession(
+  module: AudioSessionModule | null,
+  options: {
+    /**
+     * Read the session first and skip setCategoryIOS when it already matches. The speaker uses
+     * this: these calls are synchronous on the JS thread, and the recognizer has usually set the
+     * same category already. The diagnostics report always applies it.
+     */
+    keepMatching?: boolean;
+    /**
+     * The caller already saw the session match: skip the read too (only activate). With
+     * VoiceOver on, the read alone blocked the JS thread for up to 240 ms on the iPhone 16e.
+     */
+    knownMatching?: boolean;
+    now?: () => number;
+  } = {},
+): {
   audioSession: AudioSessionSnapshot | null;
   audioSessionError: string | null;
+  /** setCategoryIOS was skipped because the session already matched. */
+  categoryKept?: boolean;
+  /** Time spent in each native call, when `now` is given. */
+  timingsMs?: Record<string, number>;
 } {
   if (!module) return { audioSession: null, audioSessionError: null };
   let audioSessionError: string | null = null;
+  const timingsMs: Record<string, number> = {};
   const attempt = (step: string, fn: () => void) => {
+    const started = options.now?.();
     try {
       fn();
     } catch (e) {
       audioSessionError ??= `${step}: ${e instanceof Error ? e.message : String(e)}`;
     }
+    if (started != null) timingsMs[step] = Math.round(options.now!() - started);
   };
-  attempt('setCategoryIOS', () => module.setCategoryIOS(TTS_AUDIO_CATEGORY));
-  attempt('setAudioSessionActiveIOS', () => module.setAudioSessionActiveIOS(true));
   let audioSession: AudioSessionSnapshot | null = null;
-  attempt('getAudioSessionCategoryAndOptionsIOS', () => {
-    audioSession = module.getAudioSessionCategoryAndOptionsIOS();
-  });
-  return { audioSession, audioSessionError };
+  const read = () =>
+    attempt('getAudioSessionCategoryAndOptionsIOS', () => {
+      audioSession = module.getAudioSessionCategoryAndOptionsIOS();
+    });
+  let categoryKept = options.knownMatching === true;
+  if (options.keepMatching && !categoryKept) {
+    read();
+    categoryKept = matchesTtsCategory(audioSession);
+  }
+  if (!categoryKept) attempt('setCategoryIOS', () => module.setCategoryIOS(TTS_AUDIO_CATEGORY));
+  attempt('setAudioSessionActiveIOS', () => module.setAudioSessionActiveIOS(true));
+  if (!categoryKept) read();
+  const result = { audioSession, audioSessionError };
+  if (!options.keepMatching && !options.now) return result;
+  return { ...result, categoryKept, ...(options.now ? { timingsMs } : {}) };
+}
+
+/** The session already has TTS_AUDIO_CATEGORY: same category and mode, options in any order. */
+export function matchesTtsCategory(snapshot: AudioSessionSnapshot | null): boolean {
+  if (!snapshot) return false;
+  const sorted = (values: readonly string[]) => [...values].sort().join(',');
+  return (
+    snapshot.category === TTS_AUDIO_CATEGORY.category &&
+    snapshot.mode === (TTS_AUDIO_CATEGORY.mode ?? 'default') &&
+    sorted(snapshot.categoryOptions) === sorted(TTS_AUDIO_CATEGORY.categoryOptions)
+  );
 }

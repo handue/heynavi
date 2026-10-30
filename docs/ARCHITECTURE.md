@@ -16,7 +16,7 @@ Status: **Planned** (2026-10-29). No code exists yet. All numbers are design tar
 ```mermaid
 flowchart LR
   subgraph Phone["iPhone · Expo SDK 58 · TypeScript"]
-    STT["Listener<br/>expo-speech-recognition<br/>on-device, continuous"] --> GATE["Echo gate +<br/>command grammar EN/KO"]
+    STT["Listener<br/>expo-speech-recognition<br/>on-device, continuous"] --> GATE["Echo gate +<br/>English command grammar"]
     GATE --> AGENT["Agent core<br/>goal store + search state machine"]
     CAM["CameraView<br/>(always mounted)"] --> CQ["Capture queue<br/>1 in flight · resize 768px"]
     CQ --> PC["Perception client"]
@@ -28,7 +28,7 @@ flowchart LR
   end
   subgraph API["FastAPI backend · Python 3.12+"]
     DET["POST /v1/detect"] --> SAM[("sam-3.1")]
-    PLAN["POST /v1/plan"] --> LEX["EN/KO lexicon"]
+    PLAN["POST /v1/plan"] --> LEX["Object lexicon"]
     PLAN --> SPARK[("muse-spark-1.3")]
     DESC["POST /v1/describe · /v1/read<br/>(streamed)"] --> SPARK
     VER["POST /v1/verify"] --> SPARK
@@ -59,7 +59,7 @@ apps/mobile/
     types.ts                SessionState, Goal, Observation, Announcement
     searchMachine.ts        reducer: (state, event) -> state + effects
     confirm.ts              multi-frame confirmation + spatial matching
-    commandGrammar.ts       EN/KO regex grammar -> Command
+    commandGrammar.ts       English regex grammar -> Command
     announcer.ts            priority queue, dedupe, TTL, rate limits
   src/perception/
     frameSource.ts          interface; ExpoCameraFrameSource | VisionCameraFrameSource
@@ -98,7 +98,7 @@ interface SessionState {
   goal: Goal | null;
   search: { status: SearchStatus; window: FrameResult[]; lastSeenAt?: number; foundAt?: number };
   recent: { objects: Detection[]; sceneSummary?: string; lastText?: string };
-  speech: { speaking: boolean; lastUtterance?: string; rate: number; lang: 'en-US' | 'ko-KR' };
+  speech: { speaking: boolean; lastUtterance?: string; rate: number; lang: 'en-US' };   // English-only MVP
   camera: { active: boolean; inFlight: boolean };
   lastAnnounced: Map<string, number>;   // dedupeKey -> timestamp
 }
@@ -108,7 +108,7 @@ interface SessionState {
 
 ### 4.1 Goal intake: answer immediately, refine later
 
-1. **Command grammar (on device, under 5 ms).** It matches patterns such as `find|where is|look for <X>` and `<X> 찾아줘|<X> 어디 있어`. It then strips possessives and verbs, and maps `<X>` through a bilingual lexicon of about 60 everyday objects (의자→chair, 문→door, 컵→cup, 가방→bag, 열쇠→keys…).
+1. **Command grammar (on device, under 5 ms).** It matches patterns such as `find|where is|look for <X>`. It then strips possessives and verbs, and maps `<X>` through a lexicon of everyday objects and their synonyms (mug→cup, sofa→couch, backpack→bag…). SAM 3.1 is open-vocabulary, so any other short English noun phrase ("blue water bottle") is passed through unchanged.
 2. **On a lexicon hit,** the app says "Looking for a chair. Move your phone slowly." and the SAM loop starts **at once**.
 3. **On a miss, or when the request has modifiers** ("my blue water bottle", "an empty chair"), the app says "One moment" and calls `POST /v1/plan`. Muse Spark at `minimal` effort, with a strict JSON schema, returns `{intent, concept_en, attributes[], text_cue?, clarify?}`. If a lexicon concept is already running, the plan updates it in place.
 4. **On an ambiguous request,** Spark returns `clarify` ("Do you mean a cup or a bottle?"), the app asks, and the goal waits for the answer.
@@ -170,7 +170,7 @@ Every utterance goes through `announcer.ts`:
 
 ```ts
 interface Announcement {
-  text: string; lang: 'en-US' | 'ko-KR';
+  text: string; lang: 'en-US';
   priority: 0 | 1 | 2 | 3;     // 0 user-requested reply, 1 goal event, 2 status, 3 ambient
   dedupeKey: string;            // e.g. "found:chair:left"
   goalId?: string;              // dropped if the goal changed before it is spoken
@@ -188,7 +188,7 @@ Rules:
 
 ## 6. Voice pipeline
 
-- **Listener.** `expo-speech-recognition` runs with `continuous`, `interimResults`, `requiresOnDeviceRecognition`, `contextualStrings` (Navi, stop, repeat, find, 나비, 그만, 찾아줘…), and `iosCategory: playAndRecord + defaultToSpeaker + allowBluetooth`, mode `default`. It restarts with backoff (250 ms → 2 s) on every unplanned `end`. A volume-event heartbeat watchdog restarts it if it stalls. Switching language means stopping and starting with the new locale.
+- **Listener.** `expo-speech-recognition` runs with `continuous`, `interimResults`, `requiresOnDeviceRecognition`, `contextualStrings` (Navi, stop, repeat, find, object names…), `lang: en-US`, and `iosCategory: playAndRecord + defaultToSpeaker + allowBluetooth`, mode `default`. It restarts with backoff (250 ms → 2 s) on every unplanned `end`. A volume-event heartbeat watchdog restarts it if it stalls.
 - **Echo gate.** While TTS is speaking, and for 400 ms after, the gate drops every transcript except stop/repeat keywords. It also drops a stop keyword that appears in the sentence currently being spoken, and anything that fuzzy-matches the current utterance. If it still misfires on the device, recognition pauses during TTS and barge-in falls back to tap or Magic Tap.
 - **Command grammar.** Stop/repeat match on *interim* results for a fast barge-in; everything else matches on finals. The "Hey Navi" prefix is optional in the foreground app. Free-form questions need it, so bystander speech isn't treated as a question.
 - **Optional Meta STT path** (after the core works): a push-to-talk free-form question streams 24 kHz PCM through a FastAPI WebSocket proxy to `muse-voice-transcribe-1.0`. This is half-duplex: pause the recognizer first and restore the audio session after.
@@ -218,7 +218,7 @@ backend/app/
   meta/client.py         one shared AsyncOpenAI / httpx client, keep-alive
   meta/sam.py            request builder + box-token parser (key-based regex, masks ignored)
   meta/spark.py          plan / describe / read / verify prompts + JSON schemas
-  lexicon.py             EN/KO object lexicon
+  lexicon.py             object lexicon
   routes/…               one module per endpoint
   metrics.py             JSONL sink + p50/p95 report
 backend/tests/           parser, lexicon, schema and route tests (Meta calls mocked)
@@ -258,4 +258,13 @@ Error handling: retry once on 429/503 with jitter, honoring `Retry-After`. Never
 
 - **Development.** `uvicorn --host 0.0.0.0` on the Mac, with the iPhone on the same Wi-Fi.
 - **Demo / judging.** A small hosted instance (choice pending: Render, Fly.io, or Modal if credits arrive), plus a pre-demo `/health` check.
-- **Builds.** A dev build installed from Xcode 26.6 with a free Personal Team, rebuilt on Nov 3 because profiles expire after 7 days.
+- **Builds.** A dev build installed from Xcode 27.1 with a free Personal Team (`apps/mobile/scripts/build-ios-device.sh`), rebuilt before judging because profiles expire after 7 days.
+
+## 12. Future enhancements
+
+- **Multilingual support.** The hackathon MVP is English-only (product decision, 2026-10-29). Most of the design already carries a language:
+  - the `Lang` type in the app,
+  - the phrase table,
+  - locale-specific speech recognition and TTS voices.
+
+  Adding a language means a phrase table, a command grammar, an object lexicon that maps to English SAM concepts, and on-device recognition testing for that locale. Korean is the first candidate. Muse Voice Transcribe supports 25 languages with code-switching, which is an option for languages Apple cannot recognize on-device.

@@ -136,6 +136,11 @@ describe('search controller', () => {
       assert.deepEqual(snapshot.detections, []);
       await until(() => h.spoken.at(-1) === 'Stopped searching.', 'the stop reply');
       assert.ok(h.logs.some((l) => l.startsWith(METRICS_TAG) && l.includes('"reason":"stop"')));
+      const found = h.logs.find((l) => l.includes('"reason":"status"') && l.includes('"to":"FOUND"'));
+      assert.ok(found, 'logs the change to FOUND');
+      const parsed = JSON.parse(found.slice(METRICS_TAG.length + 1)) as { concept: string; ms: number };
+      assert.equal(parsed.concept, 'chair');
+      assert.ok(parsed.ms >= 0);
     } finally {
       h.controller.shutdown();
     }
@@ -182,7 +187,7 @@ describe('search controller', () => {
       await until(() => h.spoken.includes('Connected again.'), 'the reconnect message');
       assert.deepEqual(h.spoken, [
         'Looking for a chair. Move your phone slowly.',
-        "I can't reach the HeyNavi server. I'll keep trying.",
+        "I can't reach the server. I'll keep trying.",
         'Connected again.',
       ]);
       assert.equal(h.controller.getSnapshot().failing, null);
@@ -230,7 +235,7 @@ describe('search controller', () => {
       const startedAt = performance.now();
       h.controller.start('chair', 'en-US');
       await until(() => (performance.now() - startedAt) * scale >= 75_000, '75 s of session time');
-      assert.ok(h.spoken.includes("I can't reach the HeyNavi server. I'll keep trying."));
+      assert.ok(h.spoken.includes("I can't reach the server. I'll keep trying."));
       assert.deepEqual(coaching(), [], 'no coaching during the outage');
 
       down = false;
@@ -316,5 +321,30 @@ describe('search controller', () => {
       h.controller.shutdown();
     }
     assert.equal(h.controller.getSnapshot().search.status, 'IDLE');
+  });
+
+  it('speaks voice replies, repeats the last utterance and silences speech without stopping', async () => {
+    const h = harness(async (request) => {
+      await pause(2);
+      return ok(request, []);
+    });
+    try {
+      assert.equal(h.controller.repeat(), false, 'nothing said yet');
+      h.controller.reply('help', 'Say find and an object.');
+      await until(() => h.spoken.length === 1, 'the reply');
+      await pause(5);
+      assert.equal(h.controller.repeat(), true);
+      await until(() => h.spoken.length === 2, 'the repeat');
+      assert.deepEqual(h.spoken, ['Say find and an object.', 'Say find and an object.']);
+      await pause(5);
+
+      h.controller.start('chair', 'en-US');
+      h.controller.silence();
+      assert.deepEqual(h.cut, ['Looking for a chair. Move your phone slowly.']);
+      assert.equal(h.controller.getSnapshot().search.status, 'SEARCHING', 'the search goes on');
+      await until(() => h.requests.length >= 1, 'a frame after silence');
+    } finally {
+      h.controller.shutdown();
+    }
   });
 });

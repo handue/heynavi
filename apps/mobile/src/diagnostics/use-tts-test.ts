@@ -22,11 +22,11 @@ const audioSessionModule =
     ? requireOptionalNativeModule<AudioSessionModule>('ExpoSpeechRecognition')
     : null;
 
-export type TtsLang = 'en-US' | 'ko-KR';
+/** English only for the hackathon MVP. */
+export type TtsLang = 'en-US';
 
 export const TTS_SAMPLES: Record<TtsLang, string> = {
   'en-US': 'Hello. This is HeyNavi. I found a chair, on the left of the camera view.',
-  'ko-KR': '안녕하세요. 헤이나비입니다. 의자를 찾았어요, 화면 왼쪽에 있어요.',
 };
 
 /** 1.0 is the system default rate. */

@@ -5,13 +5,13 @@
  */
 import { createAnnouncer, type Speaker } from '../agent/announcer.ts';
 import { conceptLabel, phrases, type ErrorKind } from '../agent/phrases.ts';
-import { initialSearchState, isActive, reduce, type SearchEvent } from '../agent/search-machine.ts';
+import { SEARCH, initialSearchState, isActive, reduce, type SearchEvent } from '../agent/search-machine.ts';
 import type { Detection, Effect, Goal, HapticKind, Lang, SearchState } from '../agent/types.ts';
 import type { ApiError, DetectRequest, DetectResult } from '../api/detect-response.ts';
 import { withAbortAndTimeout } from '../lib/async.ts';
 import { sleep } from '../lib/sleep.ts';
 import { percentile, round } from '../lib/stats.ts';
-import { metricsLogLine, type FrameMetrics } from './metrics.ts';
+import { metricsLogLine, statusLogLine, type FrameMetrics } from './metrics.ts';
 import {
   NO_FAILURES,
   errorKindFor,
@@ -77,6 +77,12 @@ export type SearchController = {
   pause(): boolean;
   /** Returns true when a paused search resumed. */
   resume(): boolean;
+  /** Stops all speech and empties the queue; the search itself goes on. */
+  silence(): void;
+  /** Speaks the last utterance again. Returns false when nothing was said yet. */
+  repeat(): boolean;
+  /** A spoken reply to the user (priority 0, not tied to a goal), e.g. the help line. */
+  reply(key: string, text: string): void;
   /**
    * Unmount: stops the loop and all speech about the goal. A reply not tied to a goal ("Stopped
    * searching." from an Escape that also leaves the screen) still plays. The controller can start
@@ -128,8 +134,13 @@ export function createSearchController(deps: ControllerDeps): SearchController {
   }
 
   function dispatch(event: SearchEvent) {
-    const { state, effects } = reduce(search, event, deps.now());
+    const now = deps.now();
+    const { state, effects } = reduce(search, event, now);
     const changed = state !== search;
+    if (state.status !== search.status && state.goal) {
+      const sinceStart = state.startedAt == null ? null : now - state.startedAt;
+      deps.log(statusLogLine(state.goal.concept, search.status, state.status, sinceStart));
+    }
     search = state;
     runEffects(effects);
     if (changed) publish();
@@ -333,6 +344,26 @@ export function createSearchController(deps: ControllerDeps): SearchController {
       dispatch({ type: 'resume' });
       startLoop(goal);
       return true;
+    },
+
+    silence() {
+      announcer.clear();
+    },
+
+    repeat() {
+      return announcer.repeat();
+    },
+
+    reply(key, text) {
+      announcer.announce({
+        key: `reply:${key}`,
+        priority: 0,
+        text,
+        lang: 'en-US',
+        ttlMs: SEARCH.ttlMs.reply,
+        dedupeMs: 0,
+        goalId: null,
+      });
     },
 
     shutdown() {

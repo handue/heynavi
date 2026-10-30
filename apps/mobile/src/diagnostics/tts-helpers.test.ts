@@ -40,7 +40,6 @@ describe('pickVoice', () => {
     voice('com.apple.voice.enhanced.en-GB.Daniel', 'Enhanced', 'en-GB'),
     voice('com.apple.voice.premium.en-US.Zoe', 'Enhanced'),
     voice('com.apple.speech.synthesis.voice.Bubbles', 'Enhanced'),
-    voice('com.apple.voice.compact.ko-KR.Yuna', 'Default', 'ko-KR'),
   ];
 
   it('prefers premium, then enhanced, and avoids novelty voices', () => {
@@ -49,7 +48,8 @@ describe('pickVoice', () => {
   });
 
   it('matches the language prefix and returns null when nothing fits', () => {
-    assert.equal(pickVoice(voices, 'ko-KR')?.identifier, 'com.apple.voice.compact.ko-KR.Yuna');
+    const notUS = voices.filter((v) => v.language !== 'en-US');
+    assert.equal(pickVoice(notUS, 'en-US')?.identifier, 'com.apple.voice.enhanced.en-GB.Daniel');
     assert.equal(pickVoice(voices, 'ja-JP'), null);
   });
 });
@@ -117,6 +117,44 @@ describe('prepareTtsAudioSession', () => {
     ]);
     assert.equal(calls[0][1], TTS_AUDIO_CATEGORY);
     assert.deepEqual(result, { audioSession: snapshot, audioSessionError: null });
+  });
+
+  it('with keepMatching, reads first and skips setCategoryIOS when the session matches', () => {
+    const { module, calls } = fakeModule();
+    const result = prepareTtsAudioSession(module, { keepMatching: true });
+    assert.deepEqual(calls, [['getAudioSessionCategoryAndOptionsIOS'], ['setAudioSessionActiveIOS', true]]);
+    assert.equal(result.categoryKept, true);
+    assert.deepEqual(result.audioSession, snapshot);
+  });
+
+  it('with keepMatching, still sets a session that does not match (the recognizer default mode)', () => {
+    const { module, calls } = fakeModule();
+    const measurement: AudioSessionSnapshot = { ...snapshot, mode: 'measurement' };
+    module.getAudioSessionCategoryAndOptionsIOS = () => {
+      calls.push(['getAudioSessionCategoryAndOptionsIOS']);
+      return measurement;
+    };
+    const result = prepareTtsAudioSession(module, { keepMatching: true });
+    assert.deepEqual(
+      calls.map((c) => c[0]),
+      ['getAudioSessionCategoryAndOptionsIOS', 'setCategoryIOS', 'setAudioSessionActiveIOS', 'getAudioSessionCategoryAndOptionsIOS'],
+    );
+    assert.equal(result.categoryKept, false);
+  });
+
+  it('with knownMatching, only activates the session', () => {
+    const { module, calls } = fakeModule();
+    const result = prepareTtsAudioSession(module, { keepMatching: true, knownMatching: true });
+    assert.deepEqual(calls, [['setAudioSessionActiveIOS', true]]);
+    assert.equal(result.categoryKept, true);
+    assert.equal(result.audioSession, null);
+  });
+
+  it('times each native call when given a clock', () => {
+    const { module } = fakeModule();
+    let t = 0;
+    const result = prepareTtsAudioSession(module, { keepMatching: true, now: () => (t += 5) });
+    assert.deepEqual(result.timingsMs, { getAudioSessionCategoryAndOptionsIOS: 5, setAudioSessionActiveIOS: 5 });
   });
 
   it('records a failing step and still reads the session back', () => {

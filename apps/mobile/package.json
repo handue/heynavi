@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
+    "patch-package": "^8.0.1",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -47,7 +48,8 @@
     "lint": "expo lint",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "ios:device": "./scripts/build-ios-device.sh"
+    "ios:device": "./scripts/build-ios-device.sh",
+    "postinstall": "patch-package"
   },
   "private": true
 }

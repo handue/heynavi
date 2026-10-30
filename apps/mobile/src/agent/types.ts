@@ -1,6 +1,10 @@
 /** Agent core types. Pure TypeScript (no React, no Expo), so everything runs under `node --test`. */
 
-export type Lang = 'en-US' | 'ko-KR';
+/**
+ * The hackathon MVP is English only (en-US recognition, commands and speech). The type is kept,
+ * narrowed to one value, so adding languages later does not touch every call site.
+ */
+export type Lang = 'en-US';
 
 /** Box-center horizontal third, relative to the camera view (never to the user's body). */
 export type Position = 'left' | 'center' | 'right';
@@ -40,7 +44,7 @@ export type Goal = {
   id: string;
   /** English noun phrase sent to SAM, e.g. "chair". */
   concept: string;
-  /** What the user sees and hears, in `lang`, e.g. "의자". */
+  /** What the user sees and hears, e.g. "chair". */
   label: string;
   lang: Lang;
 };

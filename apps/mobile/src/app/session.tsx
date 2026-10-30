@@ -1,25 +1,28 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type ViewProps,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/app-text';
 import { Button } from '@/components/button';
 import { RadioGroup, type RadioOption } from '@/components/radio-group';
-import { CONCEPT_IDS, conceptLabel, phrases, type ConceptId } from '@/agent/phrases';
-import type { Lang } from '@/agent/types';
+import { CONCEPT_IDS, conceptLabel, isConceptId, phrases } from '@/agent/phrases';
 import { PICTURE_SIZE } from '@/perception/capture';
 import { DetectionOverlay } from '@/session/detection-overlay';
 import { LatencyHud } from '@/session/latency-hud';
+import { MicStatus } from '@/session/mic-status';
 import { StateStrip } from '@/session/state-strip';
 import { useSearchSession } from '@/session/use-search-session';
 import { colors, radii, spacing } from '@/theme/tokens';
-
-const LANGUAGES: readonly RadioOption<Lang>[] = [
-  { value: 'en-US', label: 'English', lang: 'en-US' },
-  { value: 'ko-KR', label: '한국어', lang: 'ko-KR' },
-];
 
 /** Portrait 9:16, the same aspect as the 1280x720 capture, so nothing is cropped. */
 const PREVIEW_ASPECT = 9 / 16;
@@ -28,8 +31,24 @@ const PREVIEW_ASPECT = 9 / 16;
 const MIN_PREVIEW_HEIGHT = 240;
 
 /**
- * VS-1 camera session: tap -> "Looking for a chair" -> sam-3.1 every ~1 s -> 2-of-3
- * confirmation -> spoken position + haptic -> tap again stops. The VoiceOver escape gesture
+ * `onAccessibilityMagicTap` is missing from ViewProps. Fabric's native view only handles the
+ * VoiceOver Magic Tap (two-finger double tap) when this prop is set, and the JS view config
+ * only forwards it with patches/react-native+0.88.1.patch. The renderer
+ * (ReactNativeAttributePayload) sends any function-valued prop listed in validAttributes to
+ * native as `true`, which AccessibilityProps reads as a bool. Native then dispatches "magicTap"
+ * (topMagicTap), which React delivers to `onMagicTap`: that is the handler that runs.
+ */
+type MagicTapProps = Pick<ViewProps, 'onMagicTap'> & { onAccessibilityMagicTap?: () => void };
+
+function magicTapProps(handler: () => void): ViewProps {
+  const props: MagicTapProps = { onMagicTap: handler, onAccessibilityMagicTap: handler };
+  return props as ViewProps;
+}
+
+/**
+ * Camera session: "Find a chair" (or the button, or Magic Tap) -> "Looking for a chair" ->
+ * sam-3.1 every ~1 s -> 2-of-3 confirmation -> spoken position + haptic. "Stop", the button or
+ * Magic Tap ends it; "Pause", "Resume" and "Repeat" work by voice. The VoiceOver escape gesture
  * stops it and goes back.
  */
 export default function SessionScreen() {
@@ -39,29 +58,31 @@ export default function SessionScreen() {
   const [area, setArea] = useState({ width: 0, height: 0 });
   const {
     attachCamera,
-    cameraReady,
+    canSearch,
     onCameraReady,
     snapshot,
     concept,
-    lang,
     active,
     setConcept,
-    setLang,
     stop,
     toggle: toggleSearch,
-  } = useSearchSession();
-  const ui = phrases(lang).ui;
-  const canSearch = permission?.granted === true && cameraReady;
+    voice,
+  } = useSearchSession({ cameraAllowed: permission?.granted === true });
+  const ui = phrases('en-US').ui;
+  // A paused search (voice "pause") is still one the big button ends.
+  const searching = active || snapshot.search.status === 'PAUSED';
 
   const preview = fitPreview(area.width, area.height);
-  const conceptOptions: RadioOption<ConceptId>[] = CONCEPT_IDS.map((id) => ({
+  // A spoken target that is not one of the six ("find my keys") shows up as its own option.
+  const conceptIds: string[] = isConceptId(concept) ? CONCEPT_IDS : [...CONCEPT_IDS, concept];
+  const conceptOptions: RadioOption<string>[] = conceptIds.map((id) => ({
     value: id,
-    label: capitalize(conceptLabel(id, lang)),
-    lang,
+    label: capitalize(conceptLabel(id)),
+    lang: 'en-US',
   }));
 
-  function toggle() {
-    if (active || canSearch) toggleSearch();
+  function toggle(source: 'button' | 'magic-tap' = 'button') {
+    if (searching || canSearch) toggleSearch(source);
   }
 
   function onAreaLayout(event: LayoutChangeEvent) {
@@ -71,19 +92,18 @@ export default function SessionScreen() {
 
   return (
     <SafeAreaView edges={['bottom']} style={styles.safeArea}>
-      {/* collapsable={false}: Fabric flattens a layout-only View, and then the escape gesture has
-          no native view to reach. onMagicTap does not reach native on RN 0.88 yet (its C++ reads
-          `onAccessibilityMagicTap`), so the UI promises nothing about Magic Tap. */}
+      {/* collapsable={false}: Fabric flattens a layout-only View, and then the escape gesture and
+          Magic Tap have no native view to reach. Magic Tap starts or ends the search. */}
       <View
         collapsable={false}
         style={styles.root}
-        onMagicTap={toggle}
+        {...magicTapProps(() => toggle('magic-tap'))}
         onAccessibilityEscape={() => {
           stop();
           router.back();
         }}>
         <StateStrip
-          target={capitalize(conceptLabel(concept, lang))}
+          target={capitalize(conceptLabel(concept))}
           status={snapshot.search.status}
           statusLabel={ui.status(snapshot.search.status)}
           window={snapshot.search.window}
@@ -109,7 +129,7 @@ export default function SessionScreen() {
               />
               <DetectionOverlay
                 detections={snapshot.detections}
-                label={conceptLabel(concept, lang)}
+                label={conceptLabel(concept)}
                 width={preview.width}
                 height={preview.height}
               />
@@ -123,7 +143,7 @@ export default function SessionScreen() {
                   this duplicate target stays out of the accessibility tree. */}
               <Pressable
                 style={StyleSheet.absoluteFill}
-                onPress={toggle}
+                onPress={() => toggle('button')}
                 accessible={false}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
@@ -141,6 +161,12 @@ export default function SessionScreen() {
         {/* At large text sizes the controls scroll instead of squeezing the preview. */}
         <ScrollView style={styles.controlsScroll} contentContainerStyle={styles.controls}>
           {mountError ? <AppText tone="danger">Camera failed to start: {mountError}</AppText> : null}
+          <MicStatus
+            status={voice.micStatus}
+            label={voice.micLabel}
+            canAskAgain={voice.voiceState.canAskAgain}
+            onPress={voice.pressMic}
+          />
           <RadioGroup
             label={ui.conceptGroup}
             options={conceptOptions}
@@ -148,12 +174,18 @@ export default function SessionScreen() {
             onChange={setConcept}
             scroll
           />
-          <RadioGroup label={ui.languageGroup} options={LANGUAGES} value={lang} onChange={setLang} />
           <Button
             large
-            label={active ? ui.stopButton : ui.startButton(concept)}
-            disabled={!active && !canSearch}
-            onPress={toggle}
+            label={searching ? ui.stopButton : ui.startButton(concept)}
+            accessibilityHint={
+              !searching
+                ? ui.startHint(concept)
+                : snapshot.search.status === 'PAUSED'
+                  ? ui.pausedHint
+                  : ui.stopHint
+            }
+            disabled={!searching && !canSearch}
+            onPress={() => toggle('button')}
           />
         </ScrollView>
       </View>
