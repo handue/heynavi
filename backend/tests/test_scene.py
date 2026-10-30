@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -194,15 +195,14 @@ def test_drops_bad_items_and_sentences_but_keeps_the_rest() -> None:
         )
     )
     assert parsed.summary is None
-    assert [i.label for i in parsed.items] == ["open door", "sign", "poster", "box"]
+    assert [i.label for i in parsed.items] == ["open door", "sign", "poster"]
     assert parsed.filtered == [
         "summary_distance",
         "invalid_label",
         "label_safety",
         "invalid_enum",
         "text_filtered",
-        "invalid_ground",
-    ]  # the fourth valid item fills the list, so "not an item" is never looked at
+    ]  # the third valid item fills the list, so the rest is never looked at
 
 
 def test_text_items_keep_verbatim_text_unless_it_breaks_the_rules() -> None:
@@ -224,7 +224,7 @@ def test_text_items_keep_verbatim_text_unless_it_breaks_the_rules() -> None:
 
 def test_caps_items_and_counts() -> None:
     many = [item(label=f"thing {chr(97 + i)}", count=99) for i in range(9)]
-    assert len(parse_scene_output(scene_json(items=many)).items) == 4
+    assert len(parse_scene_output(scene_json(items=many)).items) == 3
     detailed = parse_scene_output(scene_json(items=many), detailed=True)
     assert len(detailed.items) == 6
     assert detailed.items[0].count == 20
@@ -423,7 +423,7 @@ def test_route_checks_the_top_items_with_sam_on_the_same_frame(meta: respx.MockR
     assert by_label["desk"]["grounded"] is False  # seen, but below 0.5
     assert len(by_label["desk"]["detections"]) == 1
     assert by_label["unicorn"]["grounded"] is False and by_label["unicorn"]["detections"] == []
-    assert by_label["lamp"]["grounded"] is None  # not walking-relevant: never sent to SAM
+    assert "lamp" not in by_label  # a fourth item is beyond the 3-item cap
     assert body["usage"]["sam_images"] == 3
     assert body["usage"]["cost_usd"] == pytest.approx(1600 * 1.25e-6 + 500 * 4.25e-6 + 3 * 0.0025, abs=1e-6)
     assert body["timings_ms"]["sam"] is not None
@@ -498,3 +498,23 @@ def test_new_walking_kinds_parse() -> None:
         scene_json(items=[item(label="steps", kind="level_change"), item(label="branch", kind="overhead", band="upper")])
     )
     assert [i.kind for i in parsed.items] == ["level_change", "overhead"]
+
+
+def test_slow_sam_checks_are_left_unchecked(meta: respx.MockRouter) -> None:
+    spark = scene_json(items=[item(label="chair", ground="chair"), item(label="box", ground="box", importance="medium")])
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["model"] == "sam-3.1":
+            if payload["input"][0]["content"][0]["text"] == "chair":
+                await asyncio.sleep(1.0)
+            return httpx.Response(200, json=sam_body(sam_box(300, 300, 400, 420, 0.8)))
+        return httpx.Response(200, json=spark_body(spark))
+
+    meta.post("/responses").mock(side_effect=respond)
+    with app_client(scene_ground_timeout_seconds=0.3) as c:
+        body = c.post("/v1/scene", json=scene_body(ground=2), headers=AUTH).json()
+    by_label = {i["label"]: i for i in body["items"]}
+    assert by_label["chair"]["grounded"] is None
+    assert by_label["box"]["grounded"] is True
+    assert body["timings_ms"]["sam"] < 900

@@ -43,7 +43,14 @@ export type VoiceAction =
   | { type: 'pause-updates' }
   | { type: 'resume-updates' }
   /** Step verbosity; the session replies with the result. */
-  | { type: 'verbosity'; delta: 1 | -1 };
+  | { type: 'verbosity'; delta: 1 | -1 }
+  /** Answer a question from the current view (it may hand off to a search). */
+  | { type: 'ask'; question: string };
+
+/** Only a "where is …" question may hand off to a search when its thing is not in view. */
+export function startsSearch(question: string): boolean {
+  return /^(where|where's|wheres|where're)\b/.test(question);
+}
 
 /** A search (or a paused one) that "stop" can end. */
 export function hasSearch(status: SearchStatus): boolean {
@@ -105,6 +112,10 @@ export function planCommand(command: Command, context: VoiceContext): VoiceActio
       return scene.pausedByUser
         ? resumeUpdates()
         : [{ type: 'reply', key: 'updates-on', text: scenePhrases.updatesAlreadyOn() }];
+    case 'ask':
+      return context.canSearch
+        ? [{ type: 'ask', question: command.question }]
+        : [{ type: 'reply', key: 'camera-not-ready', text: voice.cameraNotReady() }];
   }
 }
 

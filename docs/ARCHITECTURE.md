@@ -1,6 +1,6 @@
 # HeyNavi — System Architecture
 
-Status (2026-10-30): M0–M3 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, and automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays). Free-form questions and navigation are design only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
+Status (2026-10-30): M0–M4 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays) and natural questions about the surroundings. Navigation is design only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
 
 ## 1. Product and design principles
 
@@ -16,7 +16,7 @@ HeyNavi is a **voice-first AI environmental-awareness and navigation companion**
 | 1 | **Continuous Scene Understanding** (§4) | Primary | `muse-spark-1.3` | Implemented (M3) |
 | 2 | **Grounded Object Detection** (§5) | Supporting: finds and checks the objects that scene understanding picked | `sam-3.1` | Search loop implemented (M1); automatic checks of Spark's objects implemented (M3) |
 | 3 | **Proactive Voice Guidance** (§6) | Decides what is said and when, and lets the user cut it off | the app's announcer | Implemented (M1–M3) |
-| 4 | **Conversational Interaction** (§7) | Natural English questions and commands. Active Object Search is one optional capability | on-device speech recognition, `muse-spark-1.3`, `sam-3.1` | Commands and search implemented (M2); questions planned (M4) |
+| 4 | **Conversational Interaction** (§7) | Natural English questions and commands. Active Object Search is one optional capability | on-device speech recognition, `muse-spark-1.3`, `sam-3.1` | Implemented (M2–M4) |
 | 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Planned (M5, stretch) |
 
 Principles:
@@ -336,23 +336,20 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 | "what's around me", "describe", "what's in front of me" → an immediate scene reply at detailed verbosity, outside the cadence | Implemented (M3) |
 | "quieter" / "fewer updates", "more detail" / "more updates", "updates off", "updates on" | Implemented (M3) |
 | "where is the entrance" and other free-form targets → Active Object Search on that noun phrase | Implemented (M2 grammar, voice only since M3) |
-| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Planned (M5) |
+| Questions: "where is the entrance", "what objects are nearby", "is there a chair here" (§7.2) | Implemented (M4) |
+| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Planned (M6) |
 
-### 7.2 Free-form questions (M4)
+### 7.2 Free-form questions (implemented, M4)
 
-- **What happens.** When a final transcript starts with "Hey Navi" and the grammar finds no command in it, it goes to `/v1/ask` together with:
-  - the latest frame;
-  - the scene memory;
-  - the current route instruction, if any.
-- **What Spark returns.** `{answer, action}`. `action` is null, or one of `find(concept)`, `describe` or `navigate(query)`.
-  - "Where can I sit?" can start a search for "chair" or "bench" through the existing search machine.
-  - "What does that sign say?" is answered from the frame.
-  - The answer goes through the wording filter.
-- **No waiting in silence.** A "One moment" earcon plays at once (principle: never go silent).
-- **Who can ask.** Questions need the wake phrase, so bystanders and TV audio aren't treated as questions. Commands work without it, as in M2. An on-screen Ask button opens an 8 s window in which a question needs no wake phrase.
-- **Known misrecognition.** In M2 the recognizer sometimes heard "Hey Siri" instead of "Hey Navi". The Ask button and Magic Tap are the fallbacks.
+- **What counts as a question.** A final transcript that no fixed command matches and that starts like a question: "what …", "where is …", "is there …", "are there …", "can you see …", "how many …", "which …", with at least one word that says what it is about ("where is the" is not a question yet). Fixed commands win: "what's in front of me" stays describe, "what can you do" stays help. No wake phrase is needed.
+- **What happens.** "Let me look." plays at once. The app takes one 640 px frame and sends it to `/v1/ask` with the question, the scene memory and how the phone is held. Muse Spark returns `{answer, about, search}`: a one- or two-sentence answer in the same kind of directions as the camera lines, the one thing the question is about (label, SAM concept, visible, position), and whether to keep looking for it.
+- **SAM checks the answer.** When the thing is visible, SAM looks for it on the same frame. Its box is outlined, and when SAM places it in a different third than Spark said, HeyNavi says SAM's position instead ("An entrance is visible ahead on your right.").
+- **Search hand-off.** Only a "where …" question whose thing is not in view starts the Active Object Search for it ("I don't see an entrance right now." → searching for a door). A general question never does: a misheard "what objects are nearby" once started a search for a projector.
+- **Safety.** The answer goes through the wording filter in the backend and in the app. If it fails, HeyNavi says "I can't answer that from the camera view."
+- **Over HeyNavi's speech.** Questions are accepted while HeyNavi talks, and picked out of its echo when said just before or after its words, but not if they repeat a content word HeyNavi just said.
+- **Limitations.** Without a wake phrase, a question asked by someone nearby is answered too. Misrecognitions become wrong questions ("where is the door" heard as "where is the war").
 
-## 8. Destination Navigation (M5, stretch)
+## 8. Destination Navigation (M6, stretch)
 
 - **Provider: Apple MapKit on the phone**, through a local Expo module (Swift, about 150 lines):
   - `MKLocalSearch` resolves a destination by name or category, and the app sorts the results by distance.
@@ -403,7 +400,7 @@ All requests except plain `/health` carry `X-HeyNavi-Token`. Every model respons
 |---|---|---|---|---|---|
 | `POST /v1/detect` | `{image_b64, concept, goal_id, frame_id}` | `{goal_id, frame_id, concept, image, detections:[{box, confidence, center_x, area, position}], timings_ms}` | `sam-3.1` (`store:false`) | 4 s | Implemented (M1) |
 | `POST /v1/scene` | `{image_b64, session_id, frame_id, context, detailed, ground}` | §4.2 JSON; each item also `grounded` and SAM `detections` (§5.2); `timings_ms` (spark, sam), `usage` (tokens, SAM images, cost) | `muse-spark-1.3` (`minimal`, strict schema) + up to 4 parallel `sam-3.1` | 12 s + 4 s | Implemented (M3) |
-| `POST /v1/ask` | `{question, image_b64?, context, route_step?}` | `{answer, action, timings, usage}` | `muse-spark-1.3` (`minimal`; `low` to read text) | 20 s | Planned (M4) |
+| `POST /v1/ask` | `{image_b64, session_id, question, context, hold}` | `{answer, about: {label, ground, visible, position, band, grounded, detections}, search, timings_ms, usage}` | `muse-spark-1.3` (`minimal`, strict schema) + one `sam-3.1` check | 12 s + 4 s | Implemented (M4) |
 | `POST /v1/metrics` | `{session_id, lines}` (metric lines only; no coordinates) | 204 | — | — | Implemented (M3); the app uploader comes with the release build (M5) |
 | `GET /health` (`?deep=true` needs the token) | — | `{ok, service, version, key_configured}`; deep adds `models_reachable`, `sam_available`, `spark_available` | — | — | Implemented (M0) |
 
@@ -417,9 +414,9 @@ All requests except plain `/health` carry `X-HeyNavi-Token`. Every model respons
 |---|---|---|
 | Search frame cycle (capture → SAM → result) | ≤ 1.5 s | median 1.13–1.48 s (M1) |
 | Object in view → "found" spoken | ≤ 4 s | about 2.5–3 s (M1) |
-| Scene frame captured → proactive line starts | p50 ≤ 5 s, p95 ≤ 7 s | **5.7 s / 6.8 s** with SAM checks (final M3 check, iPhone 16e: Spark p50 3.9 s / p95 6.1 s, slowest SAM check ~0.6–2.0 s). Round 2 without SAM: 4.6 s / 6.6 s. The p50 target is missed by about 0.7 s |
+| Scene frame captured → proactive line starts | p50 ≤ 5 s, p95 ≤ 7 s | **4.95 s / 7.5 s** (M4 round 1, 32 looks: 640 px frames, 3 items, SAM checks capped at 1.5 s; Spark p50 3.2 s / p95 5.1 s). M3 final: 5.7 s / 6.8 s. p50 met; p95 over by ~0.5 s, from occasional long Spark replies |
 | Possible obstacle (Spark + both SAM checks) → spoken | p50 ≤ 6 s | not measured |
-| Question → earcon / answer starts | ≤ 300 ms / ≤ 5 s | not measured |
+| Question → "Let me look." / answer ready | ≤ 300 ms / ≤ 5 s | answer ready 1.7–3.1 s after its frame (5 questions, M4 round 1) |
 | Stop → silence | ≤ 500 ms | 4–29 ms (M2) |
 | Route step trigger → spoken | ≤ 2 s (GPS at 1 Hz) | not measured |
 

@@ -40,12 +40,13 @@ export const SESSION_CAPTURE: CaptureOptions = {
 };
 
 /**
- * Scene frames for Muse Spark: 768 px, the size G4 measured (median 2.8 s). Image tokens grow
- * with resolution, and Spark needs the overall view, not small details.
+ * Scene and question frames for Muse Spark (and SAM's checks on the same frame): 640 px. Spark's
+ * time follows its input and reasoning; on the M4 measurement 640 px used 255 fewer input tokens
+ * than 768 px and answered faster (median 2.3 s against 3.2 s on the same photos).
  */
 export const SCENE_CAPTURE: CaptureOptions = {
   captureQuality: 0.8,
-  longestSide: 768,
+  longestSide: 640,
   jpegCompress: 0.6,
 };
 

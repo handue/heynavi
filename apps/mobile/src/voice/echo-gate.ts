@@ -168,8 +168,8 @@ function allWordsIn(transcript: string, utterance: string): boolean {
 const ALIGN_WINDOW = 4;
 /** Misheard words allowed between the echo and the user's command ("... camera few stop"). */
 const MAX_TAIL_STRAYS = 2;
-/** Longest barge-in looked for in a tail ("hey navi stop searching"). */
-const MAX_TAIL_COMMAND_WORDS = 5;
+/** Longest command looked for in a tail ("hey navi where is the front door"). */
+const MAX_TAIL_COMMAND_WORDS = 8;
 
 export type EchoAlignment = {
   /** Normalized words after the last one that matched HeyNavi's speech. */
@@ -236,20 +236,43 @@ export function bargeInTail(
   const aligned = alignEcho(transcript, references);
   if (!aligned || aligned.tail.length === 0) return null;
   const { tail, ahead } = aligned;
-  for (let strays = 0; strays <= Math.min(MAX_TAIL_STRAYS, tail.length - 1); strays++) {
-    const words = tail.slice(strays);
-    if (words.length > MAX_TAIL_COMMAND_WORDS) continue;
-    const text = words.join(' ');
+  // A fixed command first; a free-form question only when none fits.
+  for (const allowQuestion of [false, true]) {
+    for (let strays = 0; strays <= Math.min(MAX_TAIL_STRAYS, tail.length - 1); strays++) {
+      const words = tail.slice(strays);
+      if (words.length > MAX_TAIL_COMMAND_WORDS) continue;
+      const text = words.join(' ');
+      const analysis = analyze(text);
+      if (!analysis.command || !acceptedOverSpeech(analysis.command)) continue;
+      if ((analysis.command.type === 'ask') !== allowQuestion) continue;
+      if (ahead.length > 0 && allWordsIn(stripWake(text).rest, ahead.join(' '))) return null;
+      return { text, analysis };
+    }
+  }
+  return questionTail(transcript, references);
+}
+
+/**
+ * A question at the end of a segment that alignment missed: its own small words ("is", "the") can
+ * align with HeyNavi's line and cut the question in half. The mirror of bargeInHead: the longest
+ * ending that is a question, with no content word of HeyNavi's, after mostly HeyNavi's words.
+ */
+function questionTail(transcript: string, references: readonly string[]): { text: string; analysis: Analysis } | null {
+  const words = normalize(transcript).split(' ').filter((w) => w.length > 0);
+  const known = new Set(references.flatMap(contentStems));
+  for (let n = Math.min(MAX_TAIL_COMMAND_WORDS, words.length - 1); n >= 2; n--) {
+    const text = words.slice(words.length - n).join(' ');
     const analysis = analyze(text);
-    if (!analysis.command || !acceptedOverSpeech(analysis.command)) continue;
-    if (ahead.length > 0 && allWordsIn(stripWake(text).rest, ahead.join(' '))) return null;
+    if (analysis.command?.type !== 'ask') continue;
+    if (contentStems(stripWake(text).rest).some((w) => known.has(w))) continue;
+    if (overlapRatio(words.slice(0, words.length - n).join(' '), references) < ECHO.overlap) continue;
     return { text, analysis };
   }
   return null;
 }
 
-/** Longest barge-in looked for at the start of a segment ("hey navi stop searching"). */
-const MAX_HEAD_COMMAND_WORDS = 4;
+/** Longest command looked for at the start of a segment ("what objects are nearby", "hey navi where is the door"). */
+const MAX_HEAD_COMMAND_WORDS = 8;
 
 /**
  * A command accepted over speech, said just before HeyNavi's words came back in the same segment ("cancel the largest
@@ -264,13 +287,18 @@ export function bargeInHead(
 ): { text: string; analysis: Analysis } | null {
   const words = normalize(transcript).split(' ').filter((w) => w.length > 0);
   const known = new Set(references.flatMap(contentStems));
-  for (let n = Math.min(MAX_HEAD_COMMAND_WORDS, words.length - 1); n >= 1; n--) {
-    const text = words.slice(0, n).join(' ');
-    const analysis = analyze(text);
-    if (!analysis.command || !acceptedOverSpeech(analysis.command)) continue;
-    if (contentStems(stripWake(text).rest).some((w) => known.has(w))) continue;
-    if (overlapRatio(words.slice(n).join(' '), references) < ECHO.overlap) continue;
-    return { text, analysis };
+  // A fixed command first ("what's around me" before "what's around me a"); a free-form question
+  // only when none fits, then the longest one that is not HeyNavi's own words.
+  for (const allowQuestion of [false, true]) {
+    for (let n = Math.min(MAX_HEAD_COMMAND_WORDS, words.length - 1); n >= 1; n--) {
+      const text = words.slice(0, n).join(' ');
+      const analysis = analyze(text);
+      if (!analysis.command || !acceptedOverSpeech(analysis.command)) continue;
+      if ((analysis.command.type === 'ask') !== allowQuestion) continue;
+      if (contentStems(stripWake(text).rest).some((w) => known.has(w))) continue;
+      if (overlapRatio(words.slice(n).join(' '), references) < ECHO.overlap) continue;
+      return { text, analysis };
+    }
   }
   return null;
 }

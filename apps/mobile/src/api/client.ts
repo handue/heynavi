@@ -8,6 +8,7 @@ import {
   type DetectRequest,
   type DetectResult,
 } from '@/api/detect-response';
+import { parseAskResponse, type AskRequest, type AskResult } from '@/api/ask-response';
 import { parseSceneResponse, type SceneRequest, type SceneResult } from '@/api/scene-response';
 import { apiBaseUrl, appToken } from '@/config';
 import { round } from '@/lib/stats';
@@ -27,6 +28,11 @@ type PostResult<T> = { ok: true; data: T; rttMs: number } | { ok: false; error: 
  */
 export function detect(request: DetectRequest, { signal }: { signal?: AbortSignal } = {}): Promise<DetectResult> {
   return postJson('/v1/detect', request, DETECT_TIMEOUT_MS, parseDetectResponse, signal);
+}
+
+/** POST /v1/ask: a question about the current view. Same never-throws contract as detect(). */
+export function askQuestion(request: AskRequest, { signal }: { signal?: AbortSignal } = {}): Promise<AskResult> {
+  return postJson('/v1/ask', request, SCENE_TIMEOUT_MS, parseAskResponse, signal);
 }
 
 /** POST /v1/scene, with the same never-throws contract as detect(). */

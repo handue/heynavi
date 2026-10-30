@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -206,8 +206,9 @@ async def scene(
         image_url = JPEG_DATA_URL_PREFIX + body.image_b64
         concepts = list(dict.fromkeys(parsed.items[i].ground for i in order if parsed.items[i].ground))
         sam_started = time.perf_counter()
-        results = await asyncio.gather(
-            *(_locate(client, settings, usage, image_url, concept) for concept in concepts)
+        results = await _gather_until(
+            [_locate(client, settings, usage, image_url, concept) for concept in concepts],
+            settings.scene_ground_timeout_seconds,
         )
         sam_ms = _ms_since(sam_started)
         sam_images = len(concepts)
@@ -252,6 +253,24 @@ async def scene(
             cost_usd=round(cost, 6),
         ),
     )
+
+
+async def _gather_until(calls: list[Any], timeout: float) -> list[Any]:
+    """Results of `calls` that finish within `timeout`; None for the rest (they are cancelled)."""
+    tasks = [asyncio.ensure_future(call) for call in calls]
+    done, pending = await asyncio.wait(tasks, timeout=timeout)
+    for task in pending:
+        task.cancel()
+    if pending:
+        log.info("scene grounding: %d of %d SAM checks past %.1f s, left unchecked", len(pending), len(tasks), timeout)
+    return [task.result() if task in done and not task.cancelled() else None for task in tasks]
+
+
+async def locate(
+    client: MetaClient, settings: Settings, usage: UsageMeter, image_url: str, concept: str
+) -> list[SamDetection] | None:
+    """SAM boxes for one concept on a frame, best first; None when the call failed."""
+    return await _locate(client, settings, usage, image_url, concept)
 
 
 async def _locate(

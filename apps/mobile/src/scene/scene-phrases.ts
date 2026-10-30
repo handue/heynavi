@@ -116,6 +116,8 @@ export const scenePhrases = {
     const trimmed = text.trim();
     return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
   },
+  /** The model's answer broke the wording rules, or there was none. */
+  cannotAnswer: () => "I can't answer that from the camera view.",
   /** Said at once for "what's around me"; the answer follows when Spark replies. */
   describeAck: () => 'Let me look.',
   /** Reply to "what's around me" when there is nothing to say. */

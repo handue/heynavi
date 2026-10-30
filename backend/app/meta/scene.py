@@ -28,8 +28,9 @@ STATUSES: tuple[Status, ...] = ("new", "still", "moved", "gone")
 IMPORTANCES: tuple[Importance, ...] = ("high", "medium", "low")
 CHANGES: tuple[Change, ...] = ("none", "minor", "major")
 
-# Round 1 on the iPhone: Spark p50 5.6 s with up to 5 items; fewer items, shorter output.
-MAX_ITEMS = 4
+# Spark's time follows its reasoning, which grows with the items it lists (M4 measurement): the
+# default mode needs only the few most walking-relevant things.
+MAX_ITEMS = 3
 MAX_ITEMS_DETAILED = 6
 MAX_RAW_ITEMS = 12
 MAX_SUMMARY_WORDS = 15

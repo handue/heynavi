@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 
 import { phrases } from '../agent/phrases.ts';
 import type { SearchStatus } from '../agent/types.ts';
-import { planCommand, stopsSpeech, type VoiceContext } from './voice-actions.ts';
+import { planCommand, startsSearch, stopsSpeech, type VoiceContext } from './voice-actions.ts';
 
 const voice = phrases('en-US').voice;
 
@@ -128,5 +128,19 @@ describe('scene update commands', () => {
 
   it('holding the updates is a stop-latency sample', () => {
     assert.equal(stopsSpeech(planCommand({ type: 'stop' }, exploring())), true);
+  });
+});
+
+describe('questions (M4)', () => {
+  it('asks when the camera is ready', () => {
+    assert.deepEqual(planCommand({ type: 'ask', question: 'where is the door' }, ctx('IDLE')), [{ type: 'ask', question: 'where is the door' }]);
+    assert.deepEqual(types(planCommand({ type: 'ask', question: 'where is the door' }, ctx('IDLE', false, false))), ['reply']);
+  });
+
+  it('lets only a where-question start a search', () => {
+    assert.equal(startsSearch('where is the entrance'), true);
+    assert.equal(startsSearch("where's my cup"), true);
+    assert.equal(startsSearch('what objects are nearby what projector nearby'), false);
+    assert.equal(startsSearch('is there a door'), false);
   });
 });

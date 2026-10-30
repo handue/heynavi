@@ -8,6 +8,7 @@ import type { Announcement, Announcer } from '../agent/announcer.ts';
 import type { Detection } from '../agent/types.ts';
 import { phrases, type ErrorKind } from '../agent/phrases.ts';
 import type { ApiError } from '../api/detect-response.ts';
+import type { AskRequest, AskResult } from '../api/ask-response.ts';
 import type { SceneRequest, SceneResult } from '../api/scene-response.ts';
 import { withAbortAndTimeout } from '../lib/async.ts';
 import { sleep } from '../lib/sleep.ts';
@@ -25,9 +26,10 @@ import {
 import type { HoldReading } from '../perception/orientation.ts';
 import type { FrameCapture } from '../session/search-controller.ts';
 import { INITIAL_POLICY, decide, isHazard, mention, walkingRelevant, type DecisionNote, type PolicyState } from './attention-policy.ts';
-import { EMPTY_MEMORY, contextFor, expire, markSpoken, mergeReply, type MemoryItem, type SceneMemory } from './scene-memory.ts';
+import { EMPTY_MEMORY, bandOf, contextFor, expire, markSpoken, mergeReply, pickBox, type MemoryItem, type SceneMemory } from './scene-memory.ts';
 import { scenePhrases } from './scene-phrases.ts';
 import { VERBOSITY_STEPS, type Verbosity } from './types.ts';
+import { unspeakableReason } from './wording.ts';
 
 export const SCENE_LOOP = {
   /** The next frame is captured this long after the previous one (one Spark call in flight). */
@@ -54,6 +56,8 @@ export type ScenePause = 'user' | 'search' | 'background' | 'budget';
 export type SceneDeps = {
   capture(signal: AbortSignal): Promise<FrameCapture>;
   scene(request: SceneRequest, signal: AbortSignal): Promise<SceneResult>;
+  /** POST /v1/ask (questions); without it, questions are not answered. */
+  ask?(request: AskRequest, signal: AbortSignal): Promise<AskResult>;
   /** Shared with the search, so only one line plays at a time. */
   announcer: Announcer;
   /** How the phone is held right now (sampled when a frame is taken); null without a sensor. */
@@ -103,6 +107,12 @@ export type SceneController = {
   isPausedBy(reason: ScenePause): boolean;
   /** "What's around me": a priority-0 answer about the current view, paused or not. */
   describeNow(): void;
+  /**
+   * A question about the current view ("where is the entrance"): one look, a priority-0 answer,
+   * and a box around what it is about. `searchFor` is set when the thing is not in view and the
+   * session should start a search for it. A newer question cancels an older one.
+   */
+  ask(question: string): Promise<{ searchFor: string | null }>;
   /** Steps verbosity; returns false at either end. */
   stepVerbosity(delta: 1 | -1): boolean;
   readonly verbosity: Verbosity;
@@ -148,6 +158,9 @@ export function createSceneController(deps: SceneDeps): SceneController {
   let lastHold: HoldReading | null = null;
   let loop: AbortController | null = null;
   let oneShot: AbortController | null = null;
+  let asking: AbortController | null = null;
+  /** Each answer gets its own announcer key: a second answer must not count as a repeat of the first. */
+  let askCount = 0;
   let wake: (() => void) | null = null;
   let inFlight = false;
   /** The next reply answers "what's around me" (it may be the one already in flight). */
@@ -349,8 +362,13 @@ export function createSceneController(deps: SceneDeps): SceneController {
       notes = { ...notes, [decision.note]: (notes[decision.note] ?? 0) + 1 };
       if (decision.announcement) {
         lines++;
-        pendingLines.set(decision.announcement.key, { frameAt, replyAt: receivedAt });
-        announcer.announce(decision.announcement);
+        // A second "what's around me" must not count as a repeat of the first.
+        const announcement =
+          decision.announcement.channel === 'reply'
+            ? { ...decision.announcement, key: `${decision.announcement.key}:${frameId}` }
+            : decision.announcement;
+        pendingLines.set(announcement.key, { frameAt, replyAt: receivedAt });
+        announcer.announce(announcement);
       }
 
       calls++;
@@ -467,6 +485,73 @@ export function createSceneController(deps: SceneDeps): SceneController {
     publish();
   }
 
+  function reply(key: string, text: string) {
+    announcer.announce({ key, priority: 0, text, lang: 'en-US', ttlMs: 10_000, dedupeMs: 0, goalId: null, channel: 'reply' });
+  }
+
+  async function answer(question: string): Promise<{ searchFor: string | null }> {
+    asking?.abort();
+    const controller = new AbortController();
+    asking = controller;
+    const key = `reply:ask:${++askCount}`;
+    const { signal } = controller;
+    const frameAt = deps.now();
+    const hold = deps.hold?.() ?? null;
+    const frame = hold?.frame ?? 'camera';
+    try {
+      let image: FrameCapture;
+      try {
+        image = await withAbortAndTimeout(deps.capture(signal), signal, options.captureTimeoutMs, 'Capture timed out');
+      } catch (e) {
+        if (!signal.aborted) reply(key, phrases('en-US').error('camera'));
+        return { searchFor: null };
+      }
+      const sentAt = deps.now();
+      const result = await deps.ask!(
+        { image_b64: image.base64, session_id: sessionId, question, context: contextFor(memory, sentAt), hold: frame },
+        signal,
+      );
+      if (signal.aborted) return { searchFor: null };
+      if (!result.ok) {
+        deps.log(`[heynavi] question failed: ${describeError(result.error)}`);
+        reply(key, phrases('en-US').error(errorKindFor(result.error)));
+        return { searchFor: null };
+      }
+      const receivedAt = deps.now();
+      const { data } = result;
+      const about = data.about;
+      const box = about?.grounded ? pickBox(about.detections, about.position) : null;
+      // SAM's box is more precise than the model's thirds: when they disagree, say SAM's.
+      let text = data.answer ?? scenePhrases.cannotAnswer();
+      if (about && box && (box.position !== about.position || data.answer == null)) {
+        text = scenePhrases.visible({ label: about.label, count: 1, position: box.position, band: bandOf(box) }, frame);
+      }
+      if (unspeakableReason(text) != null) text = scenePhrases.cannotAnswer();
+      reply(key, text);
+      if (about && box) boxes = [{ key: `ask:${about.label}`, label: about.label, detection: box, obstacle: false }];
+      costUsd += data.cost_usd ?? 0;
+      deps.log(
+        metricsLine({
+          reason: 'ask',
+          rttMs: round(receivedAt - sentAt),
+          sparkMs: data.timings_ms?.spark ?? null,
+          samMs: data.timings_ms?.sam ?? null,
+          totalMs: round(receivedAt - frameAt),
+          answered: data.answer != null,
+          grounded: about?.grounded ?? null,
+          search: data.search,
+          hold: frame,
+          costUsd: data.cost_usd,
+        }),
+      );
+      deps.devLog?.(`[heynavi-scene] ask ${JSON.stringify(question)} -> ${JSON.stringify(text)}${data.search ? ` (search ${about?.ground})` : ''}`);
+      publish();
+      return { searchFor: data.search && about?.ground ? about.ground : null };
+    } finally {
+      if (asking === controller) asking = null;
+    }
+  }
+
   function resetForNewRun() {
     memory = expire(memory, deps.now());
     // A fresh first look after a pause: the user may have moved meanwhile.
@@ -527,6 +612,11 @@ export function createSceneController(deps: SceneDeps): SceneController {
       return pausedBy.has(reason);
     },
 
+    ask(question) {
+      if (!deps.ask) return Promise.resolve({ searchFor: null });
+      return answer(question);
+    },
+
     describeNow() {
       if (loop) {
         describePending = true;
@@ -566,6 +656,8 @@ export function createSceneController(deps: SceneDeps): SceneController {
       stopLoop();
       oneShot?.abort();
       oneShot = null;
+      asking?.abort();
+      asking = null;
       logSummary('stop');
       announcer.clearChannel('camera');
       started = false;
