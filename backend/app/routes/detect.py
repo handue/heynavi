@@ -124,8 +124,8 @@ async def detect(
     usage.add(sam_images=1)
 
     parse_started = time.perf_counter()
-    found = sorted(parse_sam_output(extract_output_text(response)), key=_best_first)
-    detections = [_to_detection(det) for det in found]
+    found = sorted(parse_sam_output(extract_output_text(response)), key=best_first)
+    detections = [to_detection(det) for det in found]
     image = ImageSize(width=found[0].width, height=found[0].height) if found else None
     parse_ms = _ms_since(parse_started)
 
@@ -150,12 +150,12 @@ async def _call_sam(client: MetaClient, payload: dict[str, Any], timeout: float)
     return await call_once(client, payload, timeout)
 
 
-def _best_first(det: SamDetection) -> tuple[bool, float]:
+def best_first(det: SamDetection) -> tuple[bool, float]:
     """Highest confidence first; detections without a confidence go last."""
     return (det.confidence is None, -(det.confidence or 0.0))
 
 
-def _to_detection(det: SamDetection) -> Detection:
+def to_detection(det: SamDetection) -> Detection:
     return Detection(
         box=det.box_norm,
         confidence=det.confidence,

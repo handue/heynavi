@@ -22,7 +22,7 @@
  * stop"), so the whole transcript is no command. The words that follow the part matching
  * HeyNavi's speech in order are the user's, and may be a barge-in command.
  */
-import { analyze, isBargeIn, normalize, stripWake, type Analysis, type Command } from './command-grammar.ts';
+import { acceptedOverSpeech, analyze, normalize, stripWake, type Analysis, type Command } from './command-grammar.ts';
 
 export const ECHO = {
   /** After TTS ends, transcripts are still treated as overlapping speech for this long. */
@@ -148,7 +148,7 @@ export function gate(input: EchoInput): EchoVerdict {
   if (!inSpeech) return { allow: true };
 
   const { command } = input;
-  if (command && isBargeIn(command)) {
+  if (command && acceptedOverSpeech(command)) {
     const utterance = input.currentUtterance ?? input.lastUtterance;
     if (utterance && allWordsIn(spoken, utterance)) return { allow: false, reason: 'own-words' };
     return { allow: true };
@@ -224,7 +224,8 @@ export function alignEcho(transcript: string, references: readonly string[]): Ec
 }
 
 /**
- * A barge-in command said after HeyNavi's own words in one segment, or null. Tries the longest
+ * A command said after HeyNavi's own words in one segment, or null: a barge-in, or another
+ * command accepted over speech (acceptedOverSpeech). Tries the longest
  * ending of the tail first, allowing a couple of misheard words before it. A command whose words
  * HeyNavi has yet to say is not trusted: it may be the echo running ahead of the alignment.
  */
@@ -240,7 +241,7 @@ export function bargeInTail(
     if (words.length > MAX_TAIL_COMMAND_WORDS) continue;
     const text = words.join(' ');
     const analysis = analyze(text);
-    if (!analysis.command || !isBargeIn(analysis.command)) continue;
+    if (!analysis.command || !acceptedOverSpeech(analysis.command)) continue;
     if (ahead.length > 0 && allWordsIn(stripWake(text).rest, ahead.join(' '))) return null;
     return { text, analysis };
   }
@@ -251,7 +252,7 @@ export function bargeInTail(
 const MAX_HEAD_COMMAND_WORDS = 4;
 
 /**
- * A barge-in said just before HeyNavi's words came back in the same segment ("cancel the largest
+ * A command accepted over speech, said just before HeyNavi's words came back in the same segment ("cancel the largest
  * is on the left"), or null. What follows must be mostly HeyNavi's words, and no content word of
  * the command may be one: "Stopped searching." comes back as "stop searching", which is the echo
  * itself, and in "stop looking for a chair ..." the "looking for" is HeyNavi's, so only "stop"
@@ -266,7 +267,7 @@ export function bargeInHead(
   for (let n = Math.min(MAX_HEAD_COMMAND_WORDS, words.length - 1); n >= 1; n--) {
     const text = words.slice(0, n).join(' ');
     const analysis = analyze(text);
-    if (!analysis.command || !isBargeIn(analysis.command)) continue;
+    if (!analysis.command || !acceptedOverSpeech(analysis.command)) continue;
     if (contentStems(stripWake(text).rest).some((w) => known.has(w))) continue;
     if (overlapRatio(words.slice(n).join(' '), references) < ECHO.overlap) continue;
     return { text, analysis };

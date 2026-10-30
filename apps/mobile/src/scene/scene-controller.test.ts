@@ -25,8 +25,8 @@ function ok(request: SceneRequest, reply: Reply = {}): SceneResult {
       change: reply.change ?? 'minor',
       items: reply.items ?? [],
       filtered: [],
-      timings_ms: { spark: 3000, parse: 1, total: 3010 },
-      usage: { input_tokens: 1600, output_tokens: 500, reasoning_tokens: 400, cost_usd: 0.004 },
+      timings_ms: { spark: 3000, parse: 1, sam: 600, total: 3610 },
+      usage: { input_tokens: 1600, output_tokens: 500, reasoning_tokens: 400, sam_images: 1, cost_usd: 0.004 },
     },
   };
 }
@@ -116,7 +116,7 @@ describe('scene loop', () => {
     assert.deepEqual(h.spoken.slice(0, 3), [
       "I'm looking around. I'll tell you what I notice.",
       'A hallway with a door on the right.',
-      'I see a person on the left of the camera view.',
+      'A person is visible on the left of the camera view.',
     ]);
     assert.equal(h.maxInFlight, 1);
     assert.deepEqual(h.requests[0].context, { summary: null, items: [] });
@@ -124,6 +124,7 @@ describe('scene loop', () => {
     assert.deepEqual(h.requests[1].context.items, [{ label: 'door', kind: 'landmark', position: 'right', age_s: 0, spoken: true }]);
     assert.equal(h.requests[1].context.summary, 'A hallway with a door on the right');
     assert.equal(h.requests[1].detailed, false);
+    assert.equal(h.requests[1].ground, 3);
   });
 
   it('logs per-reply metrics, frame-to-speech latency and a summary', async () => {
@@ -189,7 +190,7 @@ describe('scene loop', () => {
     assert.equal(h.requests[0].detailed, true);
     assert.equal(
       h.spoken[1],
-      'A kitchen. I see a table in the center of the camera view, and a kettle on the right of the camera view.',
+      "A kitchen. There's a table in the center of the camera view, and a kettle on the right of the camera view.",
     );
     assert.equal(h.controller.getSnapshot().running, false);
     h.controller.shutdown();
@@ -206,6 +207,23 @@ describe('scene loop', () => {
     assert.equal(h.requests.length, 1);
     assert.ok(h.spoken.includes("Today's limit for AI model calls is reached, so I can't look right now."));
     h.controller.shutdown();
+  });
+
+  it('does not speak about one slow look, only about two in a row', async () => {
+    let calls = 0;
+    const h = harness((request) => {
+      calls++;
+      if (calls === 2 || calls === 4 || calls === 5) {
+        return { ok: false, error: { kind: 'http', status: 504, code: 'timeout', message: 'slow' } };
+      }
+      return ok(request, { summary: `View ${request.frame_id}`, change: 'major' });
+    });
+    h.controller.start();
+    await until(() => calls >= 6, 'six looks');
+    h.controller.shutdown();
+    const slow = "The server is slow to answer. I'll keep trying.";
+    assert.equal(h.spoken.filter((t) => t === slow).length, 1, 'only the second timeout in a row is spoken');
+    assert.ok(h.spoken.indexOf(slow) > h.spoken.indexOf('View 0.'));
   });
 
   it('steps verbosity within its range', () => {

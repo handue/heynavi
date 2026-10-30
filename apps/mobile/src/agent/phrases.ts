@@ -58,6 +58,11 @@ function labels(concept: string): NounForms {
   return OTHER_NOUNS[concept] ?? { en: concept, enPlural: pluralize(concept) };
 }
 
+/** Said without "a"/"an" and as plural: keys, glasses, stairs. */
+export function isPluralOnly(concept: string): boolean {
+  return labels(concept).pluralOnly === true;
+}
+
 /** Plural label: chair -> chairs, person -> people, keys -> keys. */
 export function pluralLabel(concept: string): string {
   return labels(concept).enPlural;

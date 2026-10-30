@@ -117,8 +117,11 @@ export default function SessionScreen() {
                 accessibilityLabel="Camera preview"
               />
               <DetectionOverlay
-                detections={snapshot.detections}
-                label={conceptLabel(concept)}
+                boxes={
+                  searching
+                    ? snapshot.detections.map((detection, i) => ({ key: `search-${i}`, label: conceptLabel(concept), detection }))
+                    : sceneSnapshot.boxes
+                }
                 width={preview.width}
                 height={preview.height}
               />
@@ -137,6 +140,7 @@ export default function SessionScreen() {
                   p50RttMs={sceneSnapshot.p50RttMs}
                   lastModelMs={sceneSnapshot.lastSparkMs}
                   frames={sceneSnapshot.calls}
+                  note={sceneSnapshot.hold?.frame === 'forward' ? 'held forward' : 'camera view'}
                 />
               )}
               {/* Tap anywhere on the preview: same as Magic Tap. VoiceOver users have the buttons

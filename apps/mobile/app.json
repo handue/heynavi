@@ -51,6 +51,12 @@
           "microphonePermission": "HeyNavi listens for your spoken commands, such as \"find a chair\" or \"stop\".",
           "speechRecognitionPermission": "HeyNavi turns your spoken commands into text on this iPhone so it can act on them."
         }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "HeyNavi uses motion sensors to tell whether the phone is held upright, so it can say whether something is on your left or right."
+        }
       ]
     ],
     "experiments": {

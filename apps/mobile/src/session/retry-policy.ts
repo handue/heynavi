@@ -17,7 +17,7 @@ export const RETRY = {
 } as const;
 
 /** These are worth saying after the first failure: each one already took seconds, or will not fix itself. */
-const SAY_AT_ONCE: ReadonlySet<ErrorKind> = new Set<ErrorKind>([
+export const SAY_AT_ONCE: ReadonlySet<ErrorKind> = new Set<ErrorKind>([
   'slow',
   'unauthorized',
   'notConfigured',
@@ -49,11 +49,12 @@ export function recordFailure(
   state: FailureState,
   kind: ErrorKind,
   now: number,
+  sayAtOnce: ReadonlySet<ErrorKind> = SAY_AT_ONCE,
 ): { state: FailureState; announce: boolean } {
   const count = state.count + 1;
   const announce =
     state.announcedAt == null
-      ? count >= RETRY.announceAfter || SAY_AT_ONCE.has(kind)
+      ? count >= RETRY.announceAfter || sayAtOnce.has(kind)
       : now - state.announcedAt >= RETRY.reannounceMs;
   return { state: { count, announcedAt: announce ? now : state.announcedAt }, announce };
 }

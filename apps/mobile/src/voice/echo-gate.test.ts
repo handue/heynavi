@@ -78,10 +78,17 @@ describe('while HeyNavi speaks', () => {
     assert.equal(gate(input('stop', { ...speaking(STOPPED), isFinal: false })).allow, false);
   });
 
-  it('drops every other command, unless it starts with the wake phrase', () => {
+  it('drops a search request, unless it starts with the wake phrase', () => {
     assert.deepEqual(gate(input('find a cup', speaking(FOUND))), { allow: false, reason: 'speaking' });
-    assert.deepEqual(gate(input('repeat', speaking(FOUND))), { allow: false, reason: 'speaking' });
     assert.deepEqual(gate(input('Hey Navi, find a cup', speaking(FOUND))), { allow: true });
+  });
+
+  it('accepts requests about the speech and the updates without the wake phrase (M3)', () => {
+    for (const t of ['repeat', "what's around me", 'quieter', 'more detail', 'updates off', 'pause']) {
+      assert.deepEqual(gate(input(t, speaking(FOUND))), { allow: true }, t);
+    }
+    // Still not when the words are HeyNavi's own ("Looking for a chair again.").
+    assert.equal(gate(input('again', speaking(en.resume('chair')))).allow, false);
   });
 
   it('drops the commands the help line itself names, clause by clause', () => {
@@ -116,8 +123,8 @@ describe('while HeyNavi speaks', () => {
 
 describe('after HeyNavi spoke', () => {
   it('keeps treating transcripts as overlapping speech for the 400 ms tail', () => {
-    assert.equal(gate(input('repeat', endedAgo(FOUND, ECHO.tailMs - 50))).allow, false);
-    assert.equal(gate(input('repeat', endedAgo(FOUND, ECHO.tailMs + 50))).allow, true);
+    assert.equal(gate(input('find a cup', endedAgo(FOUND, ECHO.tailMs - 50))).allow, false);
+    assert.equal(gate(input('find a cup', endedAgo(FOUND, ECHO.tailMs + 50))).allow, true);
     assert.equal(gate(input('stop', endedAgo(STOPPED, 100))).allow, false, 'tail checks the last utterance');
   });
 
@@ -230,5 +237,23 @@ describe('barge-in before the echo', () => {
   it('needs the rest to be mostly HeyNavi\'s words', () => {
     assert.equal(bargeInHead('stop it right now please', [TWO]), null);
     assert.equal(bargeInHead('cancel', [TWO]), null, 'nothing after it: the whole-transcript match handles that');
+  });
+});
+
+describe('commands glued to the echo (M3, round 2 on the iPhone 16e)', () => {
+  const line = 'A kitchen with open dishwasher and boxes on floor. I see a cardboard box in the lower left of the camera view.';
+  it("finds \"what's around me\" and \"quieter\" said just before HeyNavi's words", () => {
+    assert.equal(
+      bargeInHead("What's around me a kitchen with open dishwasher and boxes on floor I see a cardboard box in the lower left of the camera review", [line])
+        ?.analysis.command?.type,
+      'describe',
+    );
+    const bag = 'I see a floor bag in the lower center of the camera view.';
+    assert.equal(bargeInHead('quieter I see a floor bag in the lower center of the camera review', [bag])?.analysis.command?.type, 'fewer-updates');
+    assert.equal(bargeInTail('I see a floor bag in the lower center of the camera view quieter', [bag])?.analysis.command?.type, 'fewer-updates');
+  });
+
+  it('still never picks a search out of the echo', () => {
+    assert.equal(bargeInHead('find a chair I see a floor bag in the lower center of the camera view', ['I see a floor bag in the lower center of the camera view.']), null);
   });
 });

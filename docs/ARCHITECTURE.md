@@ -1,6 +1,6 @@
 # HeyNavi — System Architecture
 
-Status (2026-10-29): M0–M2 are implemented and tested on the iPhone 16e. That covers the SAM 3.1 search loop, on-device English voice commands, the echo gate and Magic Tap. The product vision was revised on 2026-10-29 (§1). Continuous scene understanding, grounded verification, questions and navigation are design only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
+Status (2026-10-30): M0–M3 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, and automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays). Free-form questions and navigation are design only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
 
 ## 1. Product and design principles
 
@@ -13,9 +13,9 @@ HeyNavi is a **voice-first AI environmental-awareness and navigation companion**
 
 | # | Capability | Role | Built on | Status |
 |---|---|---|---|---|
-| 1 | **Continuous Scene Understanding** (§4) | Primary | `muse-spark-1.3` | Planned (M3) |
-| 2 | **Grounded Object Detection** (§5) | Supporting: finds and checks the objects that scene understanding picked | `sam-3.1` | Search loop implemented (M1); checking scene items planned (M4) |
-| 3 | **Proactive Voice Guidance** (§6) | Decides what is said and when, and lets the user cut it off | the app's announcer | Announcer implemented (M1–M2); attention policy planned (M3) |
+| 1 | **Continuous Scene Understanding** (§4) | Primary | `muse-spark-1.3` | Implemented (M3) |
+| 2 | **Grounded Object Detection** (§5) | Supporting: finds and checks the objects that scene understanding picked | `sam-3.1` | Search loop implemented (M1); automatic checks of Spark's objects implemented (M3) |
+| 3 | **Proactive Voice Guidance** (§6) | Decides what is said and when, and lets the user cut it off | the app's announcer | Implemented (M1–M3) |
 | 4 | **Conversational Interaction** (§7) | Natural English questions and commands. Active Object Search is one optional capability | on-device speech recognition, `muse-spark-1.3`, `sam-3.1` | Commands and search implemented (M2); questions planned (M4) |
 | 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Planned (M5, stretch) |
 
@@ -78,12 +78,12 @@ flowchart LR
 
 ### 2.1 Perception scheduler
 
-The capture queue (M1) keeps one capture in flight. A full cycle took 1.1–1.5 s at the median on the iPhone 16e. The scheduler sends each frame to at most one track, in this order:
+The capture queue (M1) keeps one capture in flight. A full search cycle took 1.1–1.5 s at the median on the iPhone 16e. Two loops share it, never at the same time:
 
-1. **Active Object Search.** While a search goal is active, every frame goes to SAM with the goal concept, exactly as in M1–M2. The scene track pauses, so the search stays as fast and quiet as it is today.
-2. **Scene.** When no Spark call is in flight and the scene interval has passed, the frame goes to `/v1/scene`. The interval starts at 4 s and stretches to 8 s after two replies in a row with no meaningful change.
-3. **Grounding.** When scene memory has items waiting to be checked, the frame goes to `/v1/detect` with that item's concept. At most 2 items wait at a time, taken in turn.
-4. **Nothing.** Otherwise no frame is captured, which saves battery and credits.
+1. **Active Object Search** (by voice). While a search goal is active, every frame goes to `/v1/detect` with the goal concept, exactly as in M1–M2. Observing pauses, so the search stays fast and quiet.
+2. **Observing** (the default). A 768 px frame goes to `/v1/scene` when no call is in flight and the interval has passed: 4 s, stretching to 8 s after two replies in a row with no change. In the same request, the backend has SAM check Spark's top 3 objects on that frame, in parallel (§5.2), so the phone uploads each frame once.
+
+Each scene frame also records how the phone was held when it was taken (§6.3).
 
 ## 3. Mobile app
 
@@ -160,24 +160,29 @@ Labels and hints are read aloud by VoiceOver and heard by the microphone, so non
 
 ### 4.2 What Spark returns (strict JSON schema)
 
+Spark is asked about **walking relevance, not interest** (decided 2026-10-30 after round 3): what could get in the way of someone walking the way the camera points, judged from the scene rather than a fixed list. Pictures, screens and things on desks, tables or shelves are left out unless they stick out into the walking area.
+
 ```jsonc
 {
-  "summary": "A hallway with a door on the right.",   // ≤ 20 words, neutral, visible things only
-  "change": "none | minor | major",                   // compared with the context sent
-  "items": [                                          // at most 5
+  "summary": "A hallway with boxes along the left wall.",  // ≤ 15 words, walking-relevant things only
+  "change": "none | minor | major",                        // compared with the context sent
+  "items": [                                               // at most 4, most relevant to walking first
     {
-      "label": "open door",          // short English noun phrase
-      "kind": "object | possible_obstacle | person | text | landmark",
-      "position": "left | center | right",           // in the camera view
+      "label": "bag",                // plain singular name, no place ("bag", not "bag on floor")
+      "count": 1,                    // 1 for things that are not counted, like clothing
+      "kind": "possible_obstacle | level_change | overhead | person | landmark | text | object",
+      "position": "left | center | right",  // in the camera view
       "band": "lower | middle | upper",
       "status": "new | still | moved | gone",
-      "importance": 1,               // 1 worth interrupting for, 2 notable, 3 background
-      "ground": "door",              // concept for SAM to check, or null
-      "text": null                   // verbatim text, only when kind is "text"
+      "importance": "high | medium | low",   // walking relevance: in the path / off to the side / none
+      "ground": "bag",               // concept for SAM to check, or ""
+      "text": ""                     // verbatim text, only when kind is "text"
     }
   ]
 }
 ```
+
+`level_change` covers stairs, steps, curbs, ramps and drop-offs; `overhead` covers low-hanging or protruding things at head or body height; `landmark` covers doors, doorways, entrances and elevators.
 
 **The prompt rules:**
 - describe only what is visible;
@@ -188,7 +193,7 @@ Labels and hints are read aloud by VoiceOver and heard by the microphone, so non
 - use the context to set each item's `status`.
 
 **The backend:**
-- validates labels with the same pattern as search concepts;
+- validates labels with the same pattern as search concepts, and cuts a place out of a label ("clothing on floor" → "clothing");
 - caps the length of text fields;
 - runs the wording filter (§6.3) on all free text.
 
@@ -207,18 +212,22 @@ Anything invalid is dropped and logged, never spoken.
 
 ### 4.4 What deserves attention
 
-The attention policy is pure TypeScript, deterministic and unit-tested. It turns changes in memory into candidate announcements:
+The attention policy (`scene/attention-policy.ts`) is pure TypeScript, deterministic and unit-tested. The default mode announces **potential walking obstacles**, not every interesting object. An item is said proactively only when it is walking-relevant: a walking kind (`possible_obstacle`, `level_change`, `overhead`, `person`, `landmark`) with `importance` above `low`. Plain objects are never proactive; signs only at "detailed".
 
-| Candidate | Condition | Priority | Dedupe window | Spoken at verbosity |
-|---|---|---|---|---|
-| Possible obstacle | `kind: possible_obstacle`, `band` lower or middle, confirmed by SAM (§5.2) | 1 | 30 s per label and position | quiet, normal, detailed |
-| New notable item | `status: new`, `importance` 1–2, confirmed by SAM when it has a `ground` concept | 2 | 60 s per label | normal, detailed |
-| Major scene change | `change: major` (for example a new room) → the summary | 2 | 20 s | normal, detailed |
-| Visible text | `kind: text`, new | 3 | 120 s per text hash | normal, detailed |
-| Background item | `importance` 3 | 3 | 120 s per label | detailed |
-| First look | first scene reply after the session starts → the summary | 2 | once | all |
+| What SAM found | Line | Priority |
+|---|---|---|
+| Confirmed level change | "Steps are visible ahead." | 1 |
+| Confirmed possible obstacle in the walking area (`high`, not upper band), or overhead thing | "Possible obstacle: a chair ahead on your left." | 1 |
+| Confirmed thing off to the side, or a person | "A bag is visible on the floor ahead on your right." "A person is visible ahead on your right." | 2 (doors 3) |
+| Not localized by SAM (not found, or not checked), but Spark puts a hazard or person in the walking area (`high`) | "There may be a bag on the floor ahead." (hedged, no box) | 2 |
+| Not localized and not in the walking area; decor; things on desks | nothing | — |
 
-Rate caps on proactive lines (initial values): at least 6 s apart and at most 6 per minute. A priority-1 line may cut off a priority-2 or 3 line that is playing.
+- **A SAM miss is not proof of absence.** It only changes the wording from plain to hedged, and removes the box.
+- **First look**: the summary once, when observing starts. **Major change** (a new room): the summary, plus an in-path item it leaves out.
+- **Repetition**: one line per reply with at most two things ("Possible obstacles: 2 baskets directly ahead, and 5 shoes directly ahead."). A thing is not said again within its window (60 s; 120 s for low relevance and text), remembered for 2 minutes even after scene memory forgets it.
+- **Rate caps**: at least 6 s between lines (3 s before a confirmed hazard) and at most 6 per minute. A priority-1 line may cut off a priority-2 or 3 line that is playing.
+- **Verbosity**: "quieter" keeps only `high` items; "more detail" adds signs.
+- **Never**: "clear", "safe", distances, collision predictions or walking directions. When only irrelevant things are in view, HeyNavi says nothing.
 
 ## 5. Grounded Object Detection (supporting)
 
@@ -239,19 +248,23 @@ Measured on the iPhone 16e: 6 of 6 searches found the chair, a 40 s run with no 
 | Spatial agreement | box centers within 0.25 × frame width | matches the same object across frames |
 | Lost | 3 consecutive misses | back to searching; the goal is kept |
 
-### 5.2 Checking what Spark picked (M4)
+### 5.2 Automatic multi-object checks (M3)
 
-When Spark names an item with a `ground` concept, SAM checks it on two frames:
+Every scene request asks for `ground: 3`. After Spark replies, the backend picks up to 3 of its items with a `ground` concept (not text, not "gone"), most important first (possible obstacles, then landmarks and people, then other objects), and runs one SAM 3.1 call per distinct concept on **the same frame Spark saw**, in parallel. Each item comes back with:
 
-1. **The same frame Spark saw** (kept in memory until Spark replies). It must find the concept at confidence ≥ 0.5, in the same or a neighbouring third of the frame. That answers "is it really there?" on the same evidence Spark used.
-2. **The next fresh frame**, at most about 2 s old. It answers "is it still in view?" and gives the position that is spoken. That position comes from SAM's box, not from Spark.
+- `grounded`: `true` when SAM's best box has confidence ≥ 0.5, `false` when SAM found nothing that good, `null` when it was not checked (beyond the top 3, or the SAM call failed: a failure never fails the reply);
+- `detections`: up to 3 SAM boxes with confidence ≥ 0.4, best first.
 
-Rules:
+Rules in the app:
 
-- **"Possible obstacle" lines need both checks.** If SAM finds nothing in either frame, the item is not announced as an obstacle. It is logged as `spark_only`, which counts against the Spark/SAM agreement rate.
-- **For other items, the first check is enough.** Items with no `ground` concept (text, an overall scene change) are not checked. They are spoken as descriptions only, never as obstacles.
-- **Size wording comes from the box, never from distance.** "It looks close" means the box covers more than 25% of the frame; "it looks far away" means less than 3%. This is the same rule as the search loop.
-- **Spending is bounded.** At most 2 items wait to be checked at a time, and each check costs 2 SAM calls.
+- **Only confirmed things are mentioned proactively.** A physical item is spoken only after SAM found it. Text needs no SAM; an item with no concept only when Spark rates it high. "What's around me" may also mention unchecked items, but never one SAM looked for and did not find.
+- **Positions come from SAM's box**, not from Spark's thirds: the box center's horizontal third gives left / center / right, its vertical third the band.
+- **"Possible obstacle" only after SAM confirms it**, and only in the lower or middle of the view.
+- **Every confirmed item gets a blue box on the preview** while observing (a thicker one, with a red tag, for a possible obstacle). This is for debugging and the demo; voice stays the interface.
+- **Size wording comes from the box, never from distance.** "It looks close" (box over 25% of the frame) is used only by the search.
+- **Spending is bounded**: at most 3 SAM calls per scene frame ($0.0075).
+
+A fresh-frame re-check ("is it still in view?") and tracking objects between Spark calls are future work (§15).
 
 ## 6. Proactive Voice Guidance
 
@@ -296,17 +309,20 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 
 ### 6.3 Wording rules, enforced in code
 
-- **Proactive camera lines come from templates filled with structured fields**, not from Spark's free text:
-  - "I see {a label} on the {left} of the camera view."
-  - "Possible obstacle: {a label} in the lower {center} of the view."
-  - "{A label} is no longer in view."
+- **Directions are approximate and never distances.** How they are worded depends on how the phone was held when the frame was taken, from the device-motion gravity vector (`perception/orientation.ts`):
+  - **Held forward** (upright in portrait, camera between 25° above and 55° below level, not turned sideways): the camera's left is the user's left. "There's a chair ahead on your left." "Possible obstacle: a box directly ahead." "There are stairs ahead on your right."
+  - **Anything else, or no sensor**: relative to the camera view. "There's a chair on the left of the camera view." "Possible obstacle: a box in the lower center of the camera view."
+
+  HeyNavi never assumes the camera points where the user is walking, and never says which way is safe to go.
+- **Proactive camera lines come from templates filled with structured fields**, not from Spark's free text. One line holds at most two things: "Possible obstacle: a box directly ahead. There's a chair ahead on your left."
 - **A summary or an answer goes through the wording filter** in the backend and again in the app. The filter rejects text containing any of these:
-  - distance or units (meter, feet, steps, yards, inches and numbers next to them);
+  - distance or units (meter, feet, yards, inches, counted steps, and numbers next to them);
   - safety or permission claims (safe, clear path, all clear, no obstacles, nothing in your way, you can walk/go/cross, go ahead);
-  - movement directions ("walk", "turn", "step") in camera lines;
+  - movement directions ("walk", "turn", "step") at the start of a sentence;
   - claims about traffic signals ("the light is green").
 
   A rejected summary is replaced by a template built from the items, or skipped. A rejected answer is replaced by "I can't answer that from the camera view."
+- **No line or clause may be a voice command or contain the wake word** (unit-tested over every template and label).
 - **Route lines come only from the route tracker (§8).**
 
 ## 7. Conversational Interaction
@@ -317,8 +333,9 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 |---|---|
 | "find / search / look for / where is X" → Active Object Search | Implemented (M2) |
 | stop, cancel, stop searching, quiet, pause, resume, repeat, help | Implemented (M2) |
-| "what's around me", "describe", "what's in front of me" → an immediate scene reply at detailed verbosity, outside the cadence | Planned (M3) |
-| "fewer updates", "more updates", "updates off", "updates on" | Planned (M3) |
+| "what's around me", "describe", "what's in front of me" → an immediate scene reply at detailed verbosity, outside the cadence | Implemented (M3) |
+| "quieter" / "fewer updates", "more detail" / "more updates", "updates off", "updates on" | Implemented (M3) |
+| "where is the entrance" and other free-form targets → Active Object Search on that noun phrase | Implemented (M2 grammar, voice only since M3) |
 | "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Planned (M5) |
 
 ### 7.2 Free-form questions (M4)
@@ -374,7 +391,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
   - `iosCategory: playAndRecord + defaultToSpeaker + allowBluetooth`.
 
   It restarts with backoff after an unplanned end, and a stall watchdog restarts it if it hangs. On-device en-US recognition was verified in Airplane Mode (G6).
-- **Echo gate.** While HeyNavi speaks, and for 400 ms after, transcripts that match its own words (stem overlap ≥ 60%) are dropped. A barge-in command said before or after the echoed words still counts. During speech, interim results can only *quiet*; a "stop" in silence ends the search.
+- **Echo gate.** While HeyNavi speaks, and for 400 ms after, transcripts that match its own words (stem overlap ≥ 60%) are dropped. A barge-in command said before or after the echoed words still counts. During speech, interim results can only *quiet*; a "stop" in silence ends the search. Since M3, requests about the speech or the updates ("what's around me", "quieter", "more detail", "pause", "resume", "repeat") are also accepted over speech and picked out of a transcript glued to the echo; a search request still needs a pause or the wake phrase.
 - **Speaker.** expo-speech uses the same audio category as the recognizer. Re-applying that category is skipped once it has been seen to match, because the call blocked the JS thread for about 500 ms on the device.
 - **VoiceOver.** Magic Tap works through the React Native patch (M2). The mic also hears VoiceOver, so spoken labels avoid command words, which a unit test checks.
 
@@ -385,9 +402,9 @@ All requests except plain `/health` carry `X-HeyNavi-Token`. Every model respons
 | Endpoint | Request | Response | Model | Timeout | Status |
 |---|---|---|---|---|---|
 | `POST /v1/detect` | `{image_b64, concept, goal_id, frame_id}` | `{goal_id, frame_id, concept, image, detections:[{box, confidence, center_x, area, position}], timings_ms}` | `sam-3.1` (`store:false`) | 4 s | Implemented (M1) |
-| `POST /v1/scene` | `{image_b64, context, activity, verbosity, frame_id}` | §4.2 JSON + `timings`, `usage` | `muse-spark-1.3` (`minimal`, strict schema) | 12 s | Planned (M3) |
+| `POST /v1/scene` | `{image_b64, session_id, frame_id, context, detailed, ground}` | §4.2 JSON; each item also `grounded` and SAM `detections` (§5.2); `timings_ms` (spark, sam), `usage` (tokens, SAM images, cost) | `muse-spark-1.3` (`minimal`, strict schema) + up to 4 parallel `sam-3.1` | 12 s + 4 s | Implemented (M3) |
 | `POST /v1/ask` | `{question, image_b64?, context, route_step?}` | `{answer, action, timings, usage}` | `muse-spark-1.3` (`minimal`; `low` to read text) | 20 s | Planned (M4) |
-| `POST /v1/metrics` | batched log lines (no coordinates) | 204 | — | — | Planned (M3) |
+| `POST /v1/metrics` | `{session_id, lines}` (metric lines only; no coordinates) | 204 | — | — | Implemented (M3); the app uploader comes with the release build (M5) |
 | `GET /health` (`?deep=true` needs the token) | — | `{ok, service, version, key_configured}`; deep adds `models_reachable`, `sam_available`, `spark_available` | — | — | Implemented (M0) |
 
 - **Dropped from the earlier design:** `/v1/plan`, `/v1/verify`, `/v1/describe` and `/v1/read`. Their jobs fold into `/v1/scene` and `/v1/ask`. `WS /v1/transcribe` moves to future work.
@@ -400,7 +417,7 @@ All requests except plain `/health` carry `X-HeyNavi-Token`. Every model respons
 |---|---|---|
 | Search frame cycle (capture → SAM → result) | ≤ 1.5 s | median 1.13–1.48 s (M1) |
 | Object in view → "found" spoken | ≤ 4 s | about 2.5–3 s (M1) |
-| Scene frame captured → proactive line starts | p50 ≤ 5 s, p95 ≤ 7 s | not measured; Spark `minimal` median 2.8 s (G4) plus ~0.5 s capture and upload |
+| Scene frame captured → proactive line starts | p50 ≤ 5 s, p95 ≤ 7 s | **5.7 s / 6.8 s** with SAM checks (final M3 check, iPhone 16e: Spark p50 3.9 s / p95 6.1 s, slowest SAM check ~0.6–2.0 s). Round 2 without SAM: 4.6 s / 6.6 s. The p50 target is missed by about 0.7 s |
 | Possible obstacle (Spark + both SAM checks) → spoken | p50 ≤ 6 s | not measured |
 | Question → earcon / answer starts | ≤ 300 ms / ≤ 5 s | not measured |
 | Stop → silence | ≤ 500 ms | 4–29 ms (M2) |

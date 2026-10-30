@@ -46,6 +46,29 @@ export function isBargeIn(command: Command): boolean {
   return BARGE_IN.has(command.type);
 }
 
+/**
+ * Commands the user may say over HeyNavi's speech without the wake phrase: the barge-ins, plus
+ * requests about the speech or the updates themselves ("what's around me", "quieter", "pause").
+ * HeyNavi's lines never contain these (voice audit), so they are also picked out of a transcript
+ * glued to its echo. "find" is not one: HeyNavi's lines are full of object names.
+ */
+const OVER_SPEECH: ReadonlySet<CommandType> = new Set<CommandType>([
+  ...BARGE_IN,
+  'describe',
+  'fewer-updates',
+  'more-updates',
+  'updates-off',
+  'updates-on',
+  'pause',
+  'resume',
+  'repeat',
+  'help',
+]);
+
+export function acceptedOverSpeech(command: Command): boolean {
+  return OVER_SPEECH.has(command.type);
+}
+
 /** Same command (and, for find, the same concept). */
 export function sameCommand(a: Command, b: Command): boolean {
   if (a.type !== b.type) return false;

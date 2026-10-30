@@ -15,7 +15,8 @@ const NUMBER = '(?:\\d+(?:[.,]\\d+)?|one|two|three|four|five|six|seven|eight|nin
 const RULES: readonly (readonly [string, RegExp])[] = [
   ['distance', new RegExp(`\\b${NUMBER}[\\s-]*${UNITS}\\b`)],
   ['distance', /\b(?:meters?|metres?|feet|yards?|inches|centimeters?|centimetres?)\b/],
-  ['distance', /\b(?:arm'?s length|within reach|steps? (?:ahead|away|forward|in front))\b/],
+  // "a step ahead" names a step; counted steps ("two steps ahead") are caught by the first rule.
+  ['distance', /\b(?:arm'?s length|within reach|steps? away)\b/],
   ['safety', /\b(?:safe|safely|safety|unsafe|danger(?:ous)?|hazard(?:ous)?|harmless)\b/],
   [
     'safety',

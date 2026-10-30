@@ -4,7 +4,7 @@
 
 Built for the Meta Global AI Developer Hackathon 2026 (Indie Developer Track, theme: *Build for Your World*).
 
-> **Status (2026-10-29): M2 complete; roadmap revised.** Working today on an iPhone 16e: say "Hey Navi, find a chair" and HeyNavi searches the camera view with SAM 3.1 and says where the chair is. Stop, cancel, pause, resume and repeat work by voice, by button and by VoiceOver Magic Tap, with on-device English speech recognition. **Planned next:** continuous scene understanding with Muse Spark (M3), grounded checks with SAM 3.1 and questions (M4), and a destination-routing prototype (M5, stretch). See [docs/PLAN.md](docs/PLAN.md).
+> **Status (2026-10-30): M3 complete.** On an iPhone 16e, HeyNavi starts observing as soon as the camera opens. Muse Spark reads the view every few seconds and picks what could get in the way of someone walking; SAM 3.1 locates and confirms those objects; HeyNavi says them out loud ("Possible obstacle: a chair ahead on your left", "Steps are visible ahead") and outlines them on the preview. Directions are relative to you only when the phone is held upright and level. "What's around me" describes the view, and "Find a chair" still runs the object search. **Next:** free-form questions (M4), then outdoor readiness and a destination-routing prototype (M5, stretch). See [docs/PLAN.md](docs/PLAN.md).
 
 ## Run locally
 
@@ -23,12 +23,12 @@ All commands run from the repo root on a Mac.
 
 ## What makes it different
 
-Most image-description apps answer one photo when asked. HeyNavi keeps watching, remembers what it has seen in the last half minute, and speaks up only when something matters (planned in M3–M4):
+Most image-description apps answer one photo when asked. HeyNavi keeps watching, remembers what it has seen in the last half minute, and speaks up when something could matter to your walking:
 
-> *"A hallway, with a door on the right of the camera view."* … *"Possible obstacle: a chair in the lower center of the view."* … "Hey Navi, where can I sit?" → *"I found a chair, on the left of the camera view."*
+> *"A hallway with bags and clothes on the floor."* … *"Possible obstacles: 2 baskets directly ahead, and 5 shoes directly ahead."* … *"A person is visible ahead on your right."* … "Find a chair" → *"I found a chair, on the left of the camera view."*
 
-- **Muse Spark** (Meta) interprets sampled camera frames together with short-term scene memory, and proposes what deserves attention. It also answers questions.
-- **SAM 3.1** (Meta) locates and checks the objects Spark picked, which can be anything Spark names, not a fixed list. A "possible obstacle" is mentioned only after SAM confirms it. SAM also runs the goal-directed search ("find my cup"), which already works.
+- **Muse Spark** (Meta) interprets sampled camera frames together with short-term scene memory, and picks what is relevant to walking: things on the floor, steps and level changes, low-hanging things, people ahead.
+- **SAM 3.1** (Meta) locates and checks the objects Spark picked, which can be anything Spark names, not a fixed list. "Possible obstacle" is said only after SAM confirms it; what SAM cannot find is said hedged ("There may be …"), never as confirmed. SAM also runs the voice-started search ("find my cup").
 - **The app** decides what is said and when. It prioritizes, skips repeats, keeps updates sparse, and lets you cut it off at any time by voice or touch.
 - **Destination routing** (stretch goal): a real walking route from Apple MapKit with GPS, spoken as "Route: …" instructions, kept separate from what the camera sees.
 

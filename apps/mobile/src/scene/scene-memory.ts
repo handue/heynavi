@@ -3,7 +3,7 @@
  * HeyNavi already said about it. It is what lets HeyNavi talk about changes instead of every
  * frame, and it becomes the compact context sent with the next frame. Pure and immutable.
  */
-import type { Position } from '../agent/types.ts';
+import type { Detection, Position } from '../agent/types.ts';
 import type {
   Band,
   Importance,
@@ -33,6 +33,13 @@ export type MemoryItem = {
   status: ItemStatus;
   text: string | null;
   ground: string | null;
+  /**
+   * SAM's latest verdict while in memory: true once found, false if it looked and did not find
+   * it, null if never checked. A later unchecked reply keeps the earlier verdict.
+   */
+  grounded: boolean | null;
+  /** SAM's best box on the latest frame that reported it, or null. */
+  box: Detection | null;
   firstSeenAt: number;
   lastSeenAt: number;
   /** When HeyNavi last spoke about it; null if never. */
@@ -79,17 +86,21 @@ export function mergeReply(
       byKey.delete(key);
       continue;
     }
+    // SAM's box is more precise than Spark's thirds: when SAM found it, its box sets the position.
+    const box = item.grounded ? pickBox(item.detections, item.position) : null;
     const next: MemoryItem = {
       key,
       label: item.label,
       count: item.count,
       kind: item.kind,
-      position: item.position,
-      band: item.band,
+      position: box ? box.position : item.position,
+      band: box ? bandOf(box) : item.band,
       importance: item.importance,
       status: item.status,
       text: item.text ?? known?.text ?? null,
       ground: item.ground,
+      grounded: item.grounded ?? known?.grounded ?? null,
+      box,
       firstSeenAt: known?.firstSeenAt ?? now,
       lastSeenAt: now,
       lastSpokenAt: known?.lastSpokenAt ?? null,
@@ -102,6 +113,21 @@ export function mergeReply(
     ? [...memory.summaries, { text: reply.summary, at: now }].slice(-MEMORY.maxSummaries)
     : memory.summaries;
   return { memory: { items: [...byKey.values()], summaries }, fresh, reported };
+}
+
+/**
+ * The SAM box for the thing Spark meant: SAM returns every instance of the concept, and the most
+ * confident one can be another door than the one Spark described. A confident box in Spark's
+ * third wins; otherwise the most confident box.
+ */
+export function pickBox(detections: readonly Detection[], position: Position): Detection | null {
+  return detections.find((d) => d.position === position && (d.confidence ?? 0) >= 0.5) ?? detections[0] ?? null;
+}
+
+/** Vertical third of a SAM box's center. */
+export function bandOf(box: Pick<Detection, 'box'>): Band {
+  const cy = (box.box[1] + box.box[3]) / 2;
+  return cy > 2 / 3 ? 'lower' : cy < 1 / 3 ? 'upper' : 'middle';
 }
 
 export function expire(memory: SceneMemory, now: number): SceneMemory {

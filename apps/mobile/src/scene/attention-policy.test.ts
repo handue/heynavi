@@ -3,143 +3,241 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ATTENTION, INITIAL_POLICY, decide, rank, type PolicyState } from './attention-policy.ts';
+import { ATTENTION, INITIAL_POLICY, decide, isHazard, mention, rank, type PolicyState } from './attention-policy.ts';
 import { EMPTY_MEMORY, markSpoken, mergeReply, type SceneMemory } from './scene-memory.ts';
 import { sceneItem } from './scene-test-helpers.ts';
-import type { SceneChange, SceneItem, Verbosity } from './types.ts';
+import type { HoldFrame, SceneChange, SceneItem, Verbosity } from './types.ts';
 
 /** Runs replies through memory and the policy the way the scene controller does. */
-function session(verbosity: Verbosity = 'normal') {
+function session(verbosity: Verbosity = 'normal', frame: HoldFrame = 'camera') {
   let memory: SceneMemory = EMPTY_MEMORY;
   let state: PolicyState = INITIAL_POLICY;
   return {
     reply(now: number, items: SceneItem[], summary: string | null = null, change: SceneChange = 'minor', describe = false) {
       const merged = mergeReply(memory, { summary, items }, now);
-      const decision = decide({ reply: { summary, change }, merged, verbosity, state, now, describe });
+      const decision = decide({ reply: { summary, change }, merged, verbosity, state, now, describe, frame });
       memory = markSpoken(merged.memory, decision.spokenKeys, now);
       state = decision.state;
       return decision;
     },
-    get memory() {
-      return memory;
+    /** A first look already happened, so the next reply is judged on its items. */
+    started(now = 0) {
+      this.reply(now, [], 'A room', 'major');
+      return this;
     },
   };
 }
 
+// Builders for the walking scenes. sceneItem() defaults: kind "object", importance "medium",
+// confirmed by SAM.
+const onFloor = (label: string, o: Partial<SceneItem> = {}) =>
+  sceneItem(label, { kind: 'possible_obstacle', importance: 'high', band: 'lower', ...o });
+const decor = (label: string, o: Partial<SceneItem> = {}) =>
+  sceneItem(label, { kind: 'object', importance: 'low', band: 'upper', ...o });
+const person = (o: Partial<SceneItem> = {}) => sceneItem('person', { kind: 'person', importance: 'high', ...o });
+const steps = (o: Partial<SceneItem> = {}) =>
+  sceneItem('steps', { kind: 'level_change', importance: 'high', band: 'lower', ...o });
+
+function onFloorMemory(o: Partial<SceneItem>) {
+  return mergeReply(EMPTY_MEMORY, { summary: null, items: [onFloor('bag', o)] }, 0).reported[0];
+}
+
+describe('walking relevance (after round 3)', () => {
+  it('suppresses decor and desk objects, and announces the bag on the floor', () => {
+    const s = session('normal', 'forward').started();
+    const d = s.reply(7000, [
+      decor('picture'),
+      decor('television', { position: 'right', importance: 'medium', band: 'middle' }),
+      sceneItem('laptop', { importance: 'low' }),
+      onFloor('bag'),
+    ]);
+    assert.equal(d.announcement?.text, 'Possible obstacle: a bag directly ahead.');
+    assert.deepEqual(d.spokenKeys, ['bag']);
+  });
+
+  it('says nothing when only irrelevant things are in view, and never that the way is clear', () => {
+    const s = session('detailed').started();
+    const d = s.reply(7000, [decor('picture'), sceneItem('monitor', { importance: 'medium' }), decor('lamp')]);
+    assert.equal(d.note, 'nothing-new');
+    assert.equal(d.announcement, null);
+  });
+
+  it('puts hazards first, at priority 1, before people and doors', () => {
+    const s = session('normal', 'forward').started();
+    const d = s.reply(7000, [
+      sceneItem('door', { kind: 'landmark', importance: 'medium', position: 'right' }),
+      person({ position: 'right', importance: 'medium' }),
+      onFloor('chair', { position: 'left', band: 'middle' }),
+    ]);
+    assert.equal(d.announcement?.priority, 1);
+    assert.equal(
+      d.announcement?.text,
+      'Possible obstacle: a chair ahead on your left. A person is visible ahead on your right.',
+    );
+  });
+
+  it('says level changes plainly, as hazards', () => {
+    const d = session('normal', 'forward').started().reply(7000, [steps()]);
+    assert.equal(d.announcement?.text, 'Steps are visible ahead.');
+    assert.equal(d.announcement?.priority, 1);
+  });
+
+  it('mentions something off to the side as visible, not as an obstacle', () => {
+    const d = session('normal', 'forward').started().reply(7000, [onFloor('bag', { importance: 'medium', position: 'right' })]);
+    assert.equal(d.announcement?.text, 'A bag is visible on the floor ahead on your right.');
+    assert.equal(d.announcement?.priority, 2);
+  });
+
+  it('does not count clothing', () => {
+    const d = session('normal', 'forward').started().reply(7000, [onFloor('clothing', { count: 3 })]);
+    assert.equal(d.announcement?.text, 'Possible obstacle: some clothing directly ahead.');
+  });
+});
+
+describe('uncertain observations and SAM misses', () => {
+  it('hedges a hazard SAM could not find: a miss is not proof it is absent', () => {
+    const d = session('normal', 'forward').started().reply(7000, [onFloor('bag', { grounded: false })]);
+    assert.equal(d.announcement?.text, 'There may be a bag on the floor ahead.');
+    assert.equal(d.announcement?.priority, 2, 'not a confirmed hazard');
+    assert.equal(isHazard(onFloorMemory({ grounded: false })), false);
+  });
+
+  it('hedges a hazard SAM did not check, and a level change with no concept', () => {
+    const s = session('normal', 'forward').started();
+    assert.equal(s.reply(7000, [steps({ grounded: null, ground: null })]).announcement?.text, 'There may be steps ahead.');
+    assert.equal(
+      s.reply(14_000, [onFloor('cable', { grounded: null, position: 'left' })]).announcement?.text,
+      'There may be a cable on the floor ahead on your left.',
+    );
+  });
+
+  it('stays silent about unconfirmed things off to the side, unconfirmed doors and decor', () => {
+    const s = session('normal').started();
+    assert.equal(s.reply(7000, [onFloor('box', { grounded: false, importance: 'medium' })]).note, 'nothing-new');
+    assert.equal(s.reply(14_000, [sceneItem('door', { kind: 'landmark', grounded: false, importance: 'high' })]).note, 'nothing-new');
+    assert.equal(s.reply(21_000, [decor('poster', { grounded: null })]).note, 'nothing-new');
+  });
+
+  it('a confirmed hazard may follow sooner than other lines; a hedged one waits', () => {
+    const s = session().started();
+    assert.equal(s.reply(3500, [onFloor('bag', { grounded: false })]).note, 'gap');
+    assert.equal(s.reply(3600, [onFloor('box')]).announcement?.priority, 1);
+  });
+});
+
+describe('mention', () => {
+  it('follows verbosity', () => {
+    const side = { kind: 'possible_obstacle' as const, grounded: true, band: 'lower' as const, importance: 'medium' as const };
+    assert.equal(mention(side, 'quiet'), null);
+    assert.equal(mention(side, 'normal'), 'visible');
+    assert.equal(mention({ ...side, importance: 'high' }, 'quiet'), 'obstacle');
+    const sign = { kind: 'text' as const, grounded: null, band: 'upper' as const, importance: 'medium' as const };
+    assert.equal(mention(sign, 'normal'), null);
+    assert.equal(mention(sign, 'detailed'), 'text');
+    assert.equal(mention({ ...side, kind: 'object' }, 'detailed'), null, 'plain objects never, even at detailed');
+  });
+
+  it('never calls something high in the view an obstacle, except overhead things', () => {
+    const high = { kind: 'possible_obstacle' as const, grounded: true, band: 'upper' as const, importance: 'high' as const };
+    assert.equal(mention(high, 'normal'), 'visible');
+    assert.equal(mention({ ...high, kind: 'overhead' }, 'normal'), 'obstacle');
+  });
+});
+
 describe('first look', () => {
   it('speaks the summary first, and marks the items it names as spoken', () => {
-    const s = session();
-    const d = s.reply(0, [sceneItem('door', { kind: 'landmark', position: 'right' })], 'A hallway with a door on the right', 'major');
+    const d = session().reply(
+      0,
+      [sceneItem('door', { kind: 'landmark', position: 'right' })],
+      'A hallway with a door on the right',
+      'major',
+    );
     assert.equal(d.note, 'first-look');
     assert.equal(d.announcement?.text, 'A hallway with a door on the right.');
     assert.equal(d.announcement?.channel, 'camera');
     assert.deepEqual(d.spokenKeys, ['door']);
   });
 
-  it('falls back to the top items when the summary was filtered', () => {
-    const d = session().reply(0, [sceneItem('chair', { band: 'lower', importance: 'high' }), sceneItem('lamp', { importance: 'low' })]);
-    assert.equal(d.announcement?.text, 'I see a chair in the lower center of the camera view, and a lamp in the center of the camera view.');
+  it('falls back to confirmed walking-relevant items when the summary was filtered', () => {
+    const d = session().reply(0, [decor('picture'), onFloor('chair'), sceneItem('door', { kind: 'landmark', position: 'left' })]);
+    assert.equal(
+      d.announcement?.text,
+      "There's a chair in the lower center of the camera view, and a door on the left of the camera view.",
+    );
   });
 
-  it('says nothing when nothing is in view, and does not try again', () => {
+  it('says nothing when nothing relevant is in view, and does not try again', () => {
     const s = session();
-    assert.equal(s.reply(0, []).announcement, null);
-    assert.equal(s.reply(7000, [sceneItem('chair')]).note, 'item');
+    assert.equal(s.reply(0, [decor('picture')]).announcement, null);
+    assert.equal(s.reply(7000, [onFloor('box')]).note, 'item');
+  });
+
+  it('drops a summary that breaks the wording rules', () => {
+    const d = session().reply(0, [onFloor('box')], 'The path ahead is clear', 'major');
+    assert.equal(d.announcement?.text, "There's a box in the lower center of the camera view.");
   });
 });
 
-describe('proactive lines', () => {
-  it('mentions a new item once, then not again within its window', () => {
-    const s = session();
-    s.reply(0, [], 'An office', 'major');
-    const d = s.reply(7000, [sceneItem('person', { kind: 'person', position: 'left' })]);
-    assert.equal(d.announcement?.text, 'I see a person on the left of the camera view.');
-    assert.equal(d.announcement?.key, 'scene:item:person');
-    assert.equal(d.announcement?.dedupeMs, ATTENTION.dedupeMs.item);
-    assert.equal(s.reply(14_000, [sceneItem('person', { kind: 'person', status: 'still' })]).note, 'nothing-new');
-    assert.equal(s.reply(21_000, [sceneItem('person', { kind: 'person', status: 'new' })]).note, 'nothing-new');
-    // After its window it may be mentioned again if Spark calls it new.
-    assert.equal(s.reply(70_000, [sceneItem('person', { kind: 'person', status: 'new' })]).note, 'item');
+describe('repetition and rate', () => {
+  it('mentions a new thing once, then not again within its window', () => {
+    const s = session().started();
+    assert.equal(s.reply(7000, [person({ position: 'left' })]).announcement?.text, 'A person is visible on the left of the camera view.');
+    assert.equal(s.reply(14_000, [person({ status: 'still' })]).note, 'nothing-new');
+    assert.equal(s.reply(21_000, [person({ status: 'new' })]).note, 'nothing-new');
+    assert.equal(s.reply(70_000, [person({ status: 'new' })]).note, 'item');
   });
 
   it('keeps lines apart and caps them per minute', () => {
-    const s = session();
-    s.reply(0, [], 'A room', 'major');
-    assert.equal(s.reply(3000, [sceneItem('chair')]).note, 'gap');
-    // Still recent and never spoken, so it gets its chance once the gap has passed.
-    assert.equal(s.reply(6500, [sceneItem('chair', { status: 'still' })]).note, 'item');
-    const labels = ['table', 'lamp', 'sofa', 'plant', 'box', 'rug'];
-    const notes = labels.map((label, i) => s.reply(13_000 + i * 7000, [sceneItem(label)]).note);
-    // 6 per minute: the first look and the chair already count.
+    const s = session().started();
+    assert.equal(s.reply(3000, [onFloor('chair', { importance: 'medium' })]).note, 'gap');
+    assert.equal(s.reply(6500, [onFloor('chair', { importance: 'medium', status: 'still' })]).note, 'item');
+    const labels = ['table', 'stool', 'sofa', 'plant', 'cart', 'rug'];
+    const notes = labels.map((label, i) => s.reply(13_000 + i * 7000, [onFloor(label, { importance: 'medium' })]).note);
     assert.deepEqual(notes.slice(0, 4), ['item', 'item', 'item', 'item']);
     assert.ok(notes.includes('rate'));
   });
 
-  it('picks the most important item, preferring things low and central', () => {
-    const s = session();
-    s.reply(0, [], 'A room', 'major');
-    const d = s.reply(7000, [
-      sceneItem('picture', { importance: 'low', band: 'upper' }),
-      sceneItem('table', { importance: 'medium' }),
-      sceneItem('box', { kind: 'possible_obstacle', importance: 'high', band: 'lower' }),
-    ]);
-    assert.equal(d.announcement?.text, 'I see a box in the lower center of the camera view.');
-    assert.equal(d.announcement?.priority, 2);
-    assert.doesNotMatch(d.announcement?.text ?? '', /obstacle/i, 'no obstacle wording before SAM checks it (M4)');
-  });
-
-  it('follows verbosity', () => {
-    const quiet = session('quiet');
-    quiet.reply(0, [], 'A room', 'major');
-    assert.equal(quiet.reply(7000, [sceneItem('table')]).note, 'nothing-new');
-    assert.equal(quiet.reply(14_000, [sceneItem('person', { importance: 'high', kind: 'person' })]).note, 'item');
-    assert.equal(quiet.reply(21_000, [], 'A kitchen', 'major').note, 'nothing-new', 'no summaries when quiet');
-
-    const normal = session('normal');
-    normal.reply(0, [], 'A room', 'major');
-    assert.equal(normal.reply(7000, [sceneItem('lamp', { importance: 'low' })]).note, 'nothing-new');
-
-    const detailed = session('detailed');
-    detailed.reply(0, [], 'A room', 'major');
-    const d = detailed.reply(7000, [sceneItem('lamp', { importance: 'low' })]);
-    assert.equal(d.announcement?.priority, 3);
-    assert.equal(d.announcement?.dedupeMs, ATTENTION.dedupeMs.low);
-  });
-
-  it('speaks a major change as its summary, adding an important item it leaves out', () => {
-    const s = session();
-    s.reply(0, [], 'A hallway', 'major');
-    const d = s.reply(25_000, [sceneItem('table'), sceneItem('person', { kind: 'person', importance: 'high', position: 'right' })], 'A kitchen with a table', 'major');
+  it('speaks a major change as its summary, adding an in-path thing it leaves out', () => {
+    const s = session().started();
+    const d = s.reply(
+      25_000,
+      [sceneItem('table', { kind: 'possible_obstacle', importance: 'medium' }), person({ position: 'right' })],
+      'A kitchen with a table',
+      'major',
+    );
     assert.equal(d.note, 'summary');
-    assert.equal(d.announcement?.text, 'A kitchen with a table. I see a person on the right of the camera view.');
+    assert.equal(d.announcement?.text, 'A kitchen with a table. A person is visible on the right of the camera view.');
     assert.deepEqual(d.spokenKeys.sort(), ['person', 'table']);
-    // The next summary waits for its own window.
     assert.equal(s.reply(33_000, [], 'A pantry', 'major').note, 'nothing-new');
   });
 
-  it('reads text when it passes the filters, and never speaks a command or the wake word', () => {
-    const s = session();
-    s.reply(0, [], 'A corridor', 'major');
-    const sign = s.reply(7000, [sceneItem('sign', { kind: 'text', text: 'Exit', ground: null, band: 'upper' })]);
-    assert.equal(sign.announcement?.text, 'I see a sign in the upper center of the camera view. It reads: Exit.');
-    assert.equal(sign.announcement?.priority, 3);
-    const stop = s.reply(14_000, [sceneItem('poster', { kind: 'text', text: 'Stop', ground: null })]);
-    assert.equal(stop.announcement?.text, 'I see a poster in the center of the camera view with some text on it.');
+  it('never speaks a sign that reads like a command or the wake word', () => {
+    const s = session('detailed').started();
+    const sign = s.reply(7000, [sceneItem('sign', { kind: 'text', text: 'Exit', ground: null, grounded: null, band: 'upper' })]);
+    assert.equal(sign.announcement?.text, 'A sign in the upper center of the camera view. It reads: Exit.');
+    const stop = s.reply(14_000, [sceneItem('poster', { kind: 'text', text: 'Stop', ground: null, grounded: null })]);
+    assert.equal(stop.announcement?.text, "There's a poster with some text in the center of the camera view.");
   });
+});
 
-  it('drops a summary that breaks the wording rules', () => {
-    const d = session().reply(0, [sceneItem('door')], 'The path ahead is clear', 'major');
-    assert.equal(d.announcement?.text, 'I see a door in the center of the camera view.');
+describe('directions', () => {
+  it('relative to the user only when the phone was held forward', () => {
+    const forward = session('normal', 'forward').started();
+    assert.equal(forward.reply(7000, [person({ position: 'right' })]).announcement?.text, 'A person is visible ahead on your right.');
+    assert.equal(forward.reply(14_000, [onFloor('box')]).announcement?.text, 'Possible obstacle: a box directly ahead.');
+    const camera = session('normal', 'camera').started();
+    assert.equal(
+      camera.reply(7000, [onFloor('box', { position: 'left' })]).announcement?.text,
+      'Possible obstacle: a box in the lower left of the camera view.',
+    );
   });
 });
 
 describe('describe on request', () => {
   it('answers with the summary plus items it does not name, as a reply', () => {
-    const s = session();
-    s.reply(0, [], 'A room', 'major');
-    const d = s.reply(
+    const d = session().started().reply(
       2000,
-      [sceneItem('door', { kind: 'landmark', position: 'right' }), sceneItem('chair', { band: 'lower' }), sceneItem('cat', { count: 2, position: 'left' })],
+      [sceneItem('door', { kind: 'landmark', position: 'right' }), onFloor('chair'), sceneItem('cat', { count: 2, position: 'left' })],
       'A living room with a door on the right',
       'none',
       true,
@@ -149,9 +247,8 @@ describe('describe on request', () => {
     assert.equal(d.announcement?.channel, 'reply');
     assert.equal(
       d.announcement?.text,
-      'A living room with a door on the right. I see a chair in the lower center of the camera view, and 2 cats on the left of the camera view.',
+      "A living room with a door on the right. There's a chair in the lower center of the camera view, and 2 cats on the left of the camera view.",
     );
-    assert.deepEqual(d.spokenKeys.sort(), ['cat', 'chair', 'door']);
   });
 
   it('says so when there is nothing to describe', () => {
@@ -161,21 +258,41 @@ describe('describe on request', () => {
 });
 
 describe('rank', () => {
-  it('orders by importance, kind, band and position', () => {
+  it('orders by relevance, then walking kind, band and position', () => {
     const { reported } = mergeReply(
       EMPTY_MEMORY,
       {
         summary: null,
         items: [
-          sceneItem('lamp', { importance: 'low' }),
+          decor('lamp'),
           sceneItem('table'),
           sceneItem('door', { kind: 'landmark' }),
-          sceneItem('box', { kind: 'possible_obstacle', importance: 'high' }),
-          sceneItem('bag', { kind: 'possible_obstacle', importance: 'high', band: 'lower', position: 'left' }),
+          onFloor('box', { band: 'middle' }),
+          onFloor('bag', { position: 'left' }),
         ],
       },
       0,
     );
     assert.deepEqual(rank(reported).map((i) => i.key), ['bag', 'box', 'door', 'table', 'lamp']);
+    assert.equal(ATTENTION.dedupeMs.item, 60_000);
+  });
+});
+
+describe('round 4 fixes', () => {
+  it('says two confirmed obstacles as one sentence', () => {
+    const d = session('normal', 'forward').started().reply(7000, [onFloor('box', { count: 2, position: 'left' }), onFloor('shoe', { count: 9 })]);
+    // Ranked: the shoes are in the center, so they come first.
+    assert.equal(d.announcement?.text, 'Possible obstacles: 9 shoes directly ahead, and 2 boxes ahead on your left.');
+    assert.equal(d.announcement?.key, 'scene:item:shoe+box');
+  });
+
+  it('does not repeat a thing that left memory and came back within its window', () => {
+    const s = session().started();
+    assert.equal(s.reply(7000, [onFloor('box')]).note, 'item');
+    // Unseen for 35 s: memory forgets it, but it was spoken 35 s ago, inside the 60 s window.
+    assert.equal(s.reply(42_000, [onFloor('box')]).note, 'nothing-new');
+    // A different thing in the same reply is still said.
+    assert.equal(s.reply(49_000, [onFloor('box'), onFloor('basket')]).announcement?.text, 'Possible obstacle: a basket in the lower center of the camera view.');
+    assert.equal(s.reply(80_000, [onFloor('box', { status: 'new' })]).note, 'item', 'after the window');
   });
 });
