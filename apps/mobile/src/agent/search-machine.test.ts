@@ -141,14 +141,6 @@ describe('confirmation', () => {
       'I found a chair, on the right of the camera view. It looks close.',
     ]);
   });
-
-  it('speaks the goal language', () => {
-    const m = machine();
-    const ko = goal('k1', 'chair', 'ko-KR');
-    assert.deepEqual(texts(m.start(0, ko)), ['의자를 찾을게요. 휴대폰을 천천히 움직여 주세요.']);
-    m.frame(1000, [det(0.1, 0.9)], 'k1');
-    assert.deepEqual(texts(m.frame(2000, [det(0.1, 0.9)], 'k1')), ['의자를 찾았어요. 화면 왼쪽에 있어요.']);
-  });
 });
 
 describe('stale results', () => {

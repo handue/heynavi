@@ -71,13 +71,13 @@ Five findings shape the design:
 | Item | Status | Finding |
 |---|---|---|
 | STT library | ✅ | `expo-speech-recognition@58.0.1` (SFSpeechRecognizer). **Needs a dev build; it is not in Expo Go.** Supports continuous recognition, interim results, `contextualStrings`, and `iosCategory`. |
-| On-device recognition | ✅/❓ | `requiresOnDeviceRecognition` falls back to network recognition *silently* when the locale has no on-device model. Network recognition has a 1-minute cap and quotas. Korean and US English are on Apple's on-device dictation list. ❓ Test ko-KR in airplane mode. |
+| On-device recognition | ✅ | `requiresOnDeviceRecognition` falls back to network recognition *silently* when the locale has no on-device model. Network recognition has a 1-minute cap and quotas. **en-US verified in Airplane Mode on the iPhone 16e (G6).** The MVP is English-only. |
 | Session lifecycle | ✅ | No auto-restart. Sessions end on Bluetooth route changes (#133) and occasionally stall (#81), so we need a restart and watchdog loop. |
 | Audio session | ✅ | The default `measurement` mode lowers playback volume. Use `playAndRecord` with `defaultToSpeaker`/`allowBluetooth` and mode `default`. |
 | TTS | ✅ | `expo-speech`: `speak()` **queues** and `stop()` clears the queue. `onError` never fires on iOS; track speaking state with `onStart`/`onDone`/`onStopped`. |
-| Echo | ✅/❓ | The mic hears our own TTS, and nothing confirms `iosVoiceProcessingEnabled` cancels `AVSpeechSynthesizer` output. **Solution: echo gating in JS** (only stop/repeat pass while speaking), plus tap and Magic Tap as reliable barge-in. Use earbuds for the demo. |
+| Echo | ✅ | The mic hears our own TTS (confirmed on device: "Stopped searching." comes back as "stop searching"). `iosVoiceProcessingEnabled` was not tried. **Echo gating in JS works on the loudspeaker** (see the M2 results below), plus tap and Magic Tap as reliable barge-in. Earbuds are still safer for the demo. |
 | Wake word | 🟡 | Picovoice's free tier reportedly ended Jun 30, 2026. "Hey Navi" will be matched as a phrase in the on-device transcript instead. |
-| VoiceOver | ✅ | VoiceOver and app TTS can talk over each other. Policy: self-voice the camera screen with no live accessibility announcements, and provide `onMagicTap` and `onAccessibilityEscape`. |
+| VoiceOver | ✅ | VoiceOver and app TTS can talk over each other. Policy: self-voice the camera screen with no live accessibility announcements, and provide `onMagicTap` and `onAccessibilityEscape`. Magic Tap needs a React Native 0.88 patch (`apps/mobile/patches/`); verified on device in M2. |
 | expo-audio PCM stream | ✅ | Forces the iOS `.record` category, which mutes playback. Half-duplex only, never alongside the recognizer. |
 
 ## 5. Builds and distribution
@@ -109,7 +109,7 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 | G3 | JPEG data URL accepted by `sam-3.1` | Request returns 200 | Send PNG (bigger payload) |
 | G4 | Muse Spark 1.3 at `minimal`, one frame, short JSON reply | Measure p50/p95, no threshold | Size the "one moment" UX around the real number |
 | G5 | Shutter sound on the demo iPhone (Camera app, silent switch on) | Silent | Switch frame capture to VisionCamera v5 `useFrameOutput` (dev build) |
-| G6 | ko-KR and en-US on-device STT in airplane mode (dev build) | Both transcribe | Fall back to Korean via Muse Voice Transcribe push-to-talk |
+| G6 | en-US on-device STT in airplane mode (dev build) | Transcribes with no network | Fall back to network recognition (1-minute cap), or Muse Voice Transcribe push-to-talk |
 | G7 | Xcode 26.6 + SDK 58 dev build on device | App launches | Retry with `EXPO_USE_PRECOMPILED_MODULES=0`; if that fails, update macOS and install Xcode 27.1 |
 | G8 | Credits visible on the dev.meta.ai dashboard | Balance shows $150 | Set a spend limit; budget assumes ≤ $40 (see [PLAN.md](PLAN.md)) |
 
@@ -132,7 +132,7 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 - **SAM parsing is confirmed on real output:** 11 "rectangle" boxes at confidence about 0.89 on the shapes image, and 0 false "chair" detections.
 - **Sample size:** each run was only 10 calls, so the 768 px vs 1008 px difference is not significant yet. Re-measure from the phone.
 - **G5 shutter sound: pass.** iPhone 16e with Silent Mode on: no shutter click during the M1 search loop, which uses `takePictureAsync({shutterSound:false})` about once per second. The VisionCamera fallback is not needed.
-- **G6 on-device speech recognition:** pending. It is only needed for M2 voice commands.
+- **G6 on-device speech recognition: pass (en-US).** iPhone 16e, Airplane Mode on and Wi-Fi off: the diagnostics screen's English recognition test transcribed a spoken sentence (reported by the tester; the Mac cannot see logs while the phone is offline). The app sets `requiresOnDeviceRecognition: true`.
 
 **First live run of the M1 search loop, 2026-10-29.** iPhone 16e on home Wi-Fi to the backend on the Mac, then to `sam-3.1`. Two sessions, 30 frames, 0 failures. Medians per frame from the app's `[heynavi-metrics]` log:
 
@@ -145,3 +145,19 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 | **Full cycle per frame** | **1,130–1,482 ms** | **2,103–2,324 ms** |
 
 SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the last 3 frames to agree, so the chair is announced about 2.5–3 s after it enters the view.
+
+**M2 on the iPhone 16e, 2026-10-29: voice commands and the VS-1 acceptance checks.** Dev build, loudspeaker (no earbuds), home Wi-Fi. Numbers come from the app's `[heynavi-metrics]` / `[heynavi-voice]` Metro log unless marked as reported by the tester.
+
+| VS-1 check | Result |
+|---|---|
+| Finds a real chair 5 times out of 5 | **pass**: 6 of 6 searches in a row reached FOUND, 4.5–11.4 s after the start (the sweep began pointed away from the chair). Every later search in the session also found it |
+| 30 s with no chair in view, 0 false "found" | **pass**: one run of about 40 s (29 frames, 0 failures) never reached CONFIRMING or FOUND |
+| Stage timings logged | **pass**: per-frame medians matched M1 (full cycle about 0.9–1.5 s) |
+| Stop within 500 ms | **pass**: button 16, 23, 26 ms; Magic Tap 11, 29 ms; voice barge-in 4–8 ms (6 samples) |
+
+- **What the stop latency measures:** from the stop request to iOS reporting that the speech playing at that moment has stopped (`onStopped`). A voice sample starts when the recognizer's result reaches the app, so it does not include the recognizer's own delay, which the app cannot see.
+- **Re-applying the audio session category was the slow part.** Before each utterance the speaker called `setCategoryIOS` with the same category the recognizer had already set. While the recognizer ran, that synchronous call blocked the JS thread for about 500 ms, and the button stop measured 531–559 ms (4 samples). Skipping the call when the session already matches brought it to 16–26 ms. With VoiceOver on, even *reading* the category blocked for 120–240 ms twice, so the speaker now checks it once and afterwards only re-activates the session.
+- **The recognizer usually hears "cancel" as "cancer":** in one round, 10 final results contained "cancer" and 5 contained "cancel", even with "cancel" in `contextualStrings`. The grammar now accepts "cancer". "Search a chair" was not understood at first; "search" is now a find verb.
+- **Barge-in over the loudspeaker works.** A "stop" said while HeyNavi talks usually arrives alone in an interim result and cuts the speech at once. Sometimes it arrives glued to HeyNavi's echoed words, before them ("cancer the largest is on the left") or after them ("the largest stop"); both are now matched against what HeyNavi said. iOS sometimes starts a new transcript segment between an interim "stop" and its final; the final then looked like a "stop" said in silence and ended the search, which was fixed.
+- **The mic also hears VoiceOver** reading the screen ("status ready", "page one of two"). None of it parsed as a command. The echo gate only knows HeyNavi's own speech, so spoken labels and hints must keep avoiding command words (a unit test checks them).
+- **Not verified yet:** auto-lock while idle on a release build (dev builds keep the screen awake), and recovery after a phone call or Siri interruption.

@@ -77,3 +77,17 @@ export function metricsLogLine(
 ): string {
   return `${METRICS_TAG} ${JSON.stringify({ reason, concept, failures, ...summarizeFrames(frames) })}`;
 }
+
+/**
+ * One line per search status change, so a live trial shows when (and whether) the target was
+ * found. `ms` counts from the search start, excluding outages (search-machine shifts startedAt).
+ */
+export function statusLogLine(
+  concept: string,
+  from: string,
+  to: string,
+  ms: number | null,
+): string {
+  const line = { reason: 'status', concept, from, to, ms: ms == null ? null : round(ms) };
+  return `${METRICS_TAG} ${JSON.stringify(line)}`;
+}

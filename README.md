@@ -4,7 +4,7 @@
 
 Built for the Meta Global AI Developer Hackathon 2026 (Indie Developer Track, theme: *Build for Your World*).
 
-> **Status (2026-10-29): M0 complete.** The scaffold, Meta API client, SAM parser, benchmark and on-device diagnostics are built and tested. The dev build runs on an iPhone 16e. See [docs/PLAN.md](docs/PLAN.md) for milestones and what is blocked.
+> **Status (2026-10-29): M2 complete.** On an iPhone 16e you can say "Hey Navi, find a chair": HeyNavi searches the camera view with SAM 3.1 and says where the chair is. Stop, cancel, pause, resume and repeat work by voice, by button and by VoiceOver Magic Tap, with on-device English speech recognition. See [docs/PLAN.md](docs/PLAN.md) for milestones and what comes next.
 
 ## Run locally
 
@@ -41,6 +41,10 @@ Most image-description apps answer one photo at a time. HeyNavi keeps a goal run
 ## Stack
 
 React Native + Expo SDK 58 + TypeScript + Expo Router (iPhone first), and Python + FastAPI + Pydantic on the backend. Meta Model API models: `sam-3.1`, `muse-spark-1.3`, and optionally `muse-voice-transcribe-1.0`.
+
+## Scope
+
+The hackathon MVP is **English-only**: speech recognition, voice commands, spoken announcements and the interface. Multilingual support is planned as a future enhancement (see [docs/ARCHITECTURE.md §12](docs/ARCHITECTURE.md)).
 
 ## Safety
 

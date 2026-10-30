@@ -21,8 +21,8 @@ function harness() {
   let pending: SpeakCallbacks | null = null;
   const timers: { fn: () => void; at: number; cancelled: boolean }[] = [];
   const speaker: Speaker = {
-    speak(text, lang, callbacks) {
-      log.push(`speak:${text}${lang === 'ko-KR' ? ' (ko)' : ''}`);
+    speak(text, _lang, callbacks) {
+      log.push(`speak:${text}`);
       pending = callbacks;
     },
     stop() {
@@ -212,10 +212,10 @@ describe('watchdog, clear and repeat', () => {
   it('keeps the last utterance and can repeat it', () => {
     const h = harness();
     assert.equal(h.announcer.repeat(), false);
-    h.announcer.announce(msg('found', 1, { text: 'I found a chair.', lang: 'ko-KR', dedupeMs: 20_000 }));
+    h.announcer.announce(msg('found', 1, { text: 'I found a chair.', dedupeMs: 20_000 }));
     h.finish();
     assert.equal(h.announcer.lastUtterance?.text, 'I found a chair.');
     assert.equal(h.announcer.repeat(), true, 'a repeat ignores the dedupe window');
-    assert.deepEqual(h.log, ['speak:I found a chair. (ko)', 'speak:I found a chair. (ko)']);
+    assert.deepEqual(h.log, ['speak:I found a chair.', 'speak:I found a chair.']);
   });
 });

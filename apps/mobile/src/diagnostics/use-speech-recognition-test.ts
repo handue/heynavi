@@ -22,7 +22,8 @@ import {
 } from '@/diagnostics/stt-restart';
 import { formatClock, round } from '@/lib/stats';
 
-export type SttLocale = 'en-US' | 'ko-KR';
+/** English only for the hackathon MVP. */
+export type SttLocale = 'en-US';
 
 export type LogEntry = { id: number; clock: string; sinceStartMs: number | null; text: string };
 export type FinalSegment = { id: number; clock: string; locale: SttLocale; text: string };
@@ -34,7 +35,6 @@ const MAX_KEPT = 10;
 
 const CONTEXTUAL_STRINGS: Record<SttLocale, string[]> = {
   'en-US': ['Hey Navi', 'Navi', 'stop', 'repeat', 'find', 'pause', 'resume'],
-  'ko-KR': ['헤이 나비', '나비', '그만', '다시', '찾아줘', '멈춰'],
 };
 
 /** Restarting after these would just fail again in a tight loop. */
@@ -110,7 +110,6 @@ export function useSpeechRecognitionTest() {
   const [stoppedAfterErrors, setStoppedAfterErrors] = useState<number | null>(null);
   const [perLocale, setPerLocale] = useState<Record<SttLocale, SttLocaleReport>>({
     'en-US': emptyLocaleReport(),
-    'ko-KR': emptyLocaleReport(),
   });
 
   const activeRef = useRef(false);

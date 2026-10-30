@@ -15,7 +15,7 @@ Every status here is one of: **Implemented & tested**, **Implemented, not verifi
 | U2 | **Shutter test.** Silent switch on, take a photo in the Camera app. Tell me: click or no click, iPhone model, iOS version, and the country the phone was bought in. | Frame-capture choice (gate G5) | Blocked on you |
 | U3 | **Claim the $150 credits** through the Participant Guide's form. Create an API key at dev.meta.ai and set a spend limit (suggest $60). Put the key in `backend/.env` yourself; never paste it in chat. | All Meta calls (gates G1–G4, G8) | Blocked on you |
 | U4 | Install **Expo Go**, then sign in to the *same* Expo account in the app and in a terminal (`npx expo login`). | Today's Expo Go prototype | Blocked on you |
-| U5 | Settings › General › Keyboard: add **Korean** and turn on dictation, so Korean recognition can run on-device. | Gate G6 | Blocked on you |
+| U5 | ~~Add Korean dictation~~. Not needed: the MVP is English-only (decision 2026-10-29). | — | Dropped |
 | U6 | Attach the **Participant Guide**. I need the exact new-work rule, video length, repo rules, judge access, and anti-project wording. | Compliance | Blocked on you |
 | U7 | Choose the project folder and GitHub username. Then `brew install gh` and `gh auth login`. | Public repo with dated commits | Blocked on you |
 | U8 | iPhone: enable Developer Mode (Settings › Privacy & Security) after first connecting it to the Mac. | Dev build install | Blocked on you, after U1 |
@@ -43,9 +43,9 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 | Milestone | Dates (ET) | Scope | Exit criteria | Rubric | Status |
 |---|---|---|---|---|---|
 | **M0 Gates + scaffold** | Oct 29 | Repo, Expo SDK 58 app, FastAPI service, Meta client, SAM token parser plus unit tests, `bench.py` for gates G1–G4 | `pytest` passes; bench reports p50/p95 for `sam-3.1` and Spark `minimal` with our key | T | **Implemented & tested** (174 backend + 31 app tests). Bench not run yet: waiting for the key |
-| **M1 VS-1 (P0)** | Oct 29–30 | Capture queue, `/v1/detect`, confirmation, announcer v0, TTS, pause/resume, stage metrics | VS-1 acceptance on the iPhone in Expo Go | D, M | **Implemented, partly verified** (dev build): 2 of 2 live searches found the chair with spoken position and haptic; coaching worked; 0 frame failures. Not yet measured: 5-of-5 trials, 30 s false-positive run, stop-to-silence latency |
-| **M2 Dev build + voice (P0)** | Oct 30 | Xcode build, expo-speech-recognition listener + watchdog, EN/KO grammar, echo gate, Magic Tap | VS-2 works; gates G6 and G7 resolved | D, T | Dev build done (G7 passed); voice not started |
-| **M3 Active Search agent (P1)** | Oct 30–31 | Full state machine, `/v1/plan` lexicon + Spark, multiple instances, guiding haptics, lost/coaching prompts, cancel/change goal, attribute verify (if G4 allows) | 10 scripted searches logged; 0 repeated "found" announcements; works in Korean | M, T, D | Planned |
+| **M1 VS-1 (P0)** | Oct 29–30 | Capture queue, `/v1/detect`, confirmation, announcer v0, TTS, pause/resume, stage metrics | VS-1 acceptance on the iPhone in Expo Go | D, M | **Implemented & tested** (dev build, iPhone 16e): 6 of 6 searches in a row found the chair; a 40 s run with no chair gave 0 false "found"; stop-to-silence 11–29 ms (button and Magic Tap). See [FEASIBILITY.md §7](FEASIBILITY.md) |
+| **M2 Dev build + voice (P0)** | Oct 30 | Xcode build, expo-speech-recognition listener + watchdog, **English** command grammar, echo gate, barge-in, Magic Tap fix. Before M2 counts as complete, the remaining VS-1 checks must also pass: 5 successful searches in a row, a 30 s run with no chair and no false announcement, and measured stop latency | VS-2 works on the iPhone; G6 (en-US) and G7 resolved; VS-1 checks pass | D, T | **Implemented & tested on the iPhone 16e**: "Hey Navi, find/search a chair", stop, cancel, pause, resume, repeat by voice; echo gate and barge-in on the loudspeaker; Magic Tap with VoiceOver; G6 passed in Airplane Mode; VS-1 checks pass. Not verified: auto-lock on a release build, recovery after a call or Siri |
+| **M3 Active Search agent (P1)** | Oct 30–31 | Full state machine, `/v1/plan` lexicon + Spark, multiple instances, guiding haptics, lost/coaching prompts, cancel/change goal, attribute verify (if G4 allows) | 10 scripted searches logged; 0 repeated "found" announcements | M, T, D | Planned |
 | **M4 Announcer + context (P2)** | Oct 31–Nov 1 | Priorities, dedupe, TTL, preemption, rate limits, stale-goal dropping; Jest tests | Unit tests for every rule; no ambient speech during a search | T | Planned |
 | **M5 Read + describe (P3)** | Nov 1 | Streamed `/v1/read` and `/v1/describe`; repeat / summarize / translate; text-hash dedupe; uncertainty phrasing | Reads 3 real signs; spoken feedback within 300 ms of each request | M, I | Planned |
 | **M6 Accessibility + UI (P2/P4)** | Nov 1–2 | Voice onboarding, settings by voice, VoiceOver audit, high contrast, wireframe styling, cautious obstacle mentions in watch mode | Core tasks completed with VoiceOver on and the screen covered | I, D | Planned |
@@ -59,7 +59,7 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 3. Watch mode / automatic obstacle mentions (P4)
 4. Attribute verification ("empty chair")
 5. Translate / summarize for text
-6. Korean (English-only demo) — cut only as a last resort, because it is part of the Impact story
+6. ~~Korean~~: **cut by product decision on 2026-10-29.** The MVP is English-only, and multilingual support is a future enhancement (see ARCHITECTURE §12)
 
 **Never cut:** VS-2, multi-frame confirmation, announcement dedupe/preemption, stop/barge-in, metrics, the safety disclaimer.
 
@@ -79,9 +79,9 @@ The backend logs the cost of each session, so these estimates get replaced with 
 | Time | Beat | What's on screen |
 |---|---|---|
 | 0:00–0:20 | **Problem.** Visual information is everywhere and hard to get at without sight. Most AI apps answer *one photo*. | Cold open: a phone in an unfamiliar room, screen dark |
-| 0:20–0:45 | **Voice-first.** VoiceOver on; Magic Tap starts HeyNavi; spoken onboarding in Korean or English | Phone screen and room, side by side |
+| 0:20–0:45 | **Voice-first.** VoiceOver on; Magic Tap starts HeyNavi; spoken English onboarding | Phone screen and room, side by side |
 | 0:45–1:35 | **Signature search.** "Hey Navi, find my chair." The user sweeps slowly: "Still looking…" → candidate → "I found a chair, on the left" → guiding pulses → "Centered." Then they change the goal mid-search ("Actually, find the door") and stop by voice. | Live overlay of SAM boxes, the state chip (SEARCHING → CONFIRMING → FOUND), and a latency readout |
-| 1:35–2:05 | **Text reader.** "Read that sign" → reads it, "repeat that", then "translate to Korean" | Text card from wireframe 05 |
+| 1:35–2:05 | **Text reader.** "Read that sign" → reads it, "repeat that", then "summarize that" | Text card from wireframe 05 |
 | 2:05–2:35 | **Engineering.** Architecture diagram; why SAM 3.1 runs the main loop and Muse Spark plans and verifies; state machine; announcement engine; measured p50/p95 | Diagram + metrics table |
 | 2:35–3:00 | **Impact and honesty.** Who it helps, real results, limits (doesn't replace a cane), what's next | Results + disclaimer |
 

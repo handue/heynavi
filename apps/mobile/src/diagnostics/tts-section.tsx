@@ -20,7 +20,7 @@ const RATE_CHOICES = TTS_RATES.map((rate) => ({
   accessibilityLabel: rate === 1 ? '1.0, system default' : String(rate),
 }));
 
-const LANG_LABEL: Record<TtsLang, string> = { 'en-US': 'English', 'ko-KR': 'Korean' };
+const LANG_LABEL: Record<TtsLang, string> = { 'en-US': 'English' };
 
 const HEARD_CHOICES = [
   { value: 'yes', label: 'Yes' },
@@ -56,11 +56,10 @@ export function TtsSection({ reportRef }: Props) {
       <ChoiceGroup label="Speech rate" choices={RATE_CHOICES} value={tts.rate} onChange={tts.setRate} />
       <View style={styles.buttons}>
         <Button label="Speak English sample" onPress={() => tts.speak('en-US')} />
-        <Button label="Speak Korean sample" onPress={() => tts.speak('ko-KR')} />
         <Button label="Stop speaking" variant="danger" disabled={!tts.speaking} onPress={tts.stop} />
       </View>
       <Field label="Voices installed" value={String(tts.voices.length)} />
-      {(['en-US', 'ko-KR'] as const).map((lang) => (
+      {(['en-US'] as const).map((lang) => (
         <LangResult key={lang} lang={lang} tts={tts} />
       ))}
     </Card>

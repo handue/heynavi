@@ -32,6 +32,11 @@ export function createExpoSpeaker(): Speaker {
   let generation = 0;
   let stopping: Promise<void> = Promise.resolve();
   let audioSessionReported = false;
+  /**
+   * The session had the TTS category once without an error. Nothing in the app sets another
+   * category (the recognizer uses the same one), so later utterances only re-activate it.
+   */
+  let categoryConfirmed = false;
 
   return {
     speak(text, lang, callbacks) {
@@ -41,7 +46,20 @@ export function createExpoSpeaker(): Speaker {
           callbacks.onStopped();
           return;
         }
-        const { audioSessionError } = prepareTtsAudioSession(audioSessionModule);
+        const started = performance.now();
+        const { audioSessionError, categoryKept, timingsMs } = prepareTtsAudioSession(audioSessionModule, {
+          keepMatching: true,
+          knownMatching: categoryConfirmed,
+          now: () => performance.now(),
+        });
+        if (!audioSessionError) categoryConfirmed = true;
+        const prepMs = performance.now() - started;
+        // These native calls block the JS thread; a slow one delays every other JS event too.
+        if (__DEV__ && prepMs >= 20) {
+          console.log(
+            `[speaker] audio session prep ${Math.round(prepMs)} ms (category ${categoryKept ? 'kept' : 'set'}) ${JSON.stringify(timingsMs)}`,
+          );
+        }
         if (audioSessionError && !audioSessionReported) {
           audioSessionReported = true;
           console.warn('[speaker] audio session setup failed', audioSessionError);

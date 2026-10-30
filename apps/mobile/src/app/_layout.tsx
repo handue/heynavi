@@ -16,7 +16,8 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.white },
         }}>
         <Stack.Screen name="index" options={{ title: 'HeyNavi', headerShown: false }} />
-        <Stack.Screen name="session" options={{ title: 'HeyNavi', headerBackTitle: 'Home' }} />
+        {/* Not "HeyNavi": VoiceOver reads the title aloud while the app listens for "Hey Navi". */}
+        <Stack.Screen name="session" options={{ title: 'Object search', headerBackTitle: 'Home' }} />
         <Stack.Screen
           name="diagnostics"
           options={{

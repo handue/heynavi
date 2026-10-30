@@ -1,21 +1,42 @@
 /**
- * Every user-facing sentence, in en-US and ko-KR. Positions are relative to the camera view and
- * size is only "looks close / far away": never meters, steps, or claims that something is safe.
+ * Every user-facing sentence. The hackathon MVP is English only (en-US); more languages are a
+ * possible future enhancement. Positions are relative to the camera view and size is only
+ * "looks close / far away": never meters, steps, or claims that something is safe.
+ *
+ * Voice audit (M2): the microphone hears every spoken line through the loudspeaker, and VoiceOver
+ * reads the ui strings aloud. So no line, and no clause of a line, may parse as a voice command
+ * ("Stop searching" became "End search"), and no line may contain the wake word ("HeyNavi
+ * server" became "the server"). phrases.test.ts enforces both. The help line is the one
+ * deliberate exception: it lists the commands, and the echo gate drops them while it plays.
+ * It names no "stop", so the user's own "stop" can still cut it off.
  */
 import type { Lang, Position, SearchStatus } from './types.ts';
 
 export type ConceptId = 'chair' | 'cup' | 'bottle' | 'door' | 'person' | 'bag';
 
-type ConceptLabels = { en: string; enPlural: string; ko: string; /** Korean counter word. */ koCounter: string };
+type NounForms = {
+  en: string;
+  enPlural: string;
+  /** Said without "a"/"an": "Looking for keys." */
+  pluralOnly?: boolean;
+};
 
 /** SAM English noun -> labels. Order is the order shown in the concept chooser. */
-export const CONCEPTS: Record<ConceptId, ConceptLabels> = {
-  chair: { en: 'chair', enPlural: 'chairs', ko: '의자', koCounter: '개' },
-  cup: { en: 'cup', enPlural: 'cups', ko: '컵', koCounter: '개' },
-  bottle: { en: 'bottle', enPlural: 'bottles', ko: '병', koCounter: '개' },
-  door: { en: 'door', enPlural: 'doors', ko: '문', koCounter: '개' },
-  person: { en: 'person', enPlural: 'people', ko: '사람', koCounter: '명' },
-  bag: { en: 'bag', enPlural: 'bags', ko: '가방', koCounter: '개' },
+export const CONCEPTS: Record<ConceptId, NounForms> = {
+  chair: { en: 'chair', enPlural: 'chairs' },
+  cup: { en: 'cup', enPlural: 'cups' },
+  bottle: { en: 'bottle', enPlural: 'bottles' },
+  door: { en: 'door', enPlural: 'doors' },
+  person: { en: 'person', enPlural: 'people' },
+  bag: { en: 'bag', enPlural: 'bags' },
+};
+
+/** Spoken concepts (from voice) whose words need more than the regular rules. */
+const OTHER_NOUNS: Record<string, NounForms> = {
+  tv: { en: 'TV', enPlural: 'TVs' },
+  keys: { en: 'keys', enPlural: 'keys', pluralOnly: true },
+  glasses: { en: 'glasses', enPlural: 'glasses', pluralOnly: true },
+  stairs: { en: 'stairs', enPlural: 'stairs', pluralOnly: true },
 };
 
 export const CONCEPT_IDS = Object.keys(CONCEPTS) as ConceptId[];
@@ -24,42 +45,30 @@ export function isConceptId(value: string): value is ConceptId {
   return Object.hasOwn(CONCEPTS, value);
 }
 
-/** Unknown concepts (a future free-form goal) fall back to the English noun itself. */
-function labels(concept: string): ConceptLabels {
-  return isConceptId(concept)
-    ? CONCEPTS[concept]
-    : { en: concept, enPlural: `${concept}s`, ko: concept, koCounter: '개' };
+/** Regular English plural of the last word: couch -> couches, trash can -> trash cans. */
+export function pluralize(noun: string): string {
+  if (/(s|x|z|ch|sh)$/.test(noun)) return `${noun}es`;
+  if (/[^aeiou]y$/.test(noun)) return `${noun.slice(0, -1)}ies`;
+  return `${noun}s`;
 }
 
-export function conceptLabel(concept: string, lang: Lang): string {
-  const l = labels(concept);
-  return lang === 'ko-KR' ? l.ko : l.en;
+/** Concepts outside the chooser (a spoken goal) fall back to the English noun itself. */
+function labels(concept: string): NounForms {
+  if (isConceptId(concept)) return CONCEPTS[concept];
+  return OTHER_NOUNS[concept] ?? { en: concept, enPlural: pluralize(concept) };
 }
 
-// --- Korean particles -------------------------------------------------------------------------
-
-/** True when the last Hangul syllable has a final consonant; null when it is not Hangul. */
-export function hasBatchim(word: string): boolean | null {
-  const trimmed = word.trimEnd();
-  const code = trimmed.charCodeAt(trimmed.length - 1);
-  if (!(code >= 0xac00 && code <= 0xd7a3)) return null;
-  return (code - 0xac00) % 28 !== 0;
-}
-
-export type JosaPair = '을/를' | '이/가' | '은/는' | '과/와';
-
-/** Word + particle: 의자를, 컵을, 의자가, 컵이. Non-Hangul endings get both forms: "TV을(를)". */
-export function josa(word: string, pair: JosaPair): string {
-  const [afterConsonant, afterVowel] = pair.split('/');
-  const batchim = hasBatchim(word);
-  if (batchim == null) return `${word}${afterConsonant}(${afterVowel})`;
-  return word + (batchim ? afterConsonant : afterVowel);
+/** Kept with a `lang` parameter so more languages can come back without touching callers. */
+export function conceptLabel(concept: string, _lang: Lang = 'en-US'): string {
+  return labels(concept).en;
 }
 
 // --- English helpers --------------------------------------------------------------------------
 
-function withArticle(noun: string): string {
-  return `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
+function withArticle(concept: string): string {
+  const l = labels(concept);
+  if (l.pluralOnly) return l.en;
+  return `${/^[aeiou]/i.test(l.en) ? 'an' : 'a'} ${l.en}`;
 }
 
 export type SizeHint = 'close' | 'far' | null;
@@ -73,6 +82,16 @@ export type ErrorKind =
   | 'server'
   | 'camera';
 
+/** Mic indicator states (voice-session.ts micStatus). */
+export type MicStatusLabel =
+  | 'listening'
+  | 'paused'
+  | 'off'
+  | 'asking'
+  | 'needs-permission'
+  | 'unavailable'
+  | 'stopped';
+
 export type Phrasebook = {
   start(concept: string): string;
   found(concept: string, position: Position, size: SizeHint): string;
@@ -85,12 +104,41 @@ export type Phrasebook = {
   stop(): string;
   error(kind: ErrorKind): string;
   reconnected(): string;
+  /** Replies to voice commands. */
+  voice: {
+    /** The one line that names the commands (the echo gate drops them while it plays). */
+    help(): string;
+    /** Listening gave up after errors; it retries on its own. */
+    listeningLost(): string;
+    notUnderstood(): string;
+    paused(): string;
+    nothingToPause(): string;
+    nothingToResume(): string;
+    nothingToRepeat(): string;
+    cameraNotReady(): string;
+  };
   ui: {
     status(status: SearchStatus): string;
     startButton(concept: string): string;
     stopButton: string;
+    /** VoiceOver hints for the big Start / End button; they mention the voice commands. */
+    startHint(concept: string): string;
+    stopHint: string;
+    /** The End button's hint while the search is paused. */
+    pausedHint: string;
     conceptGroup: string;
-    languageGroup: string;
+    mic: {
+      /** Static text next to the mic button (not a live region: the app speaks for itself). */
+      status: Record<MicStatusLabel, string>;
+      turnOff: string;
+      turnOffHint: string;
+      turnOn: string;
+      turnOnHint: string;
+      allow: string;
+      allowHint: string;
+      openSettings: string;
+      openSettingsHint: string;
+    };
   };
 };
 
@@ -108,33 +156,45 @@ const EN_SIZE: Record<'close' | 'far', string> = {
 const EN_TIPS = ['Try turning slowly.', 'Try tilting the phone up or down a little.'];
 
 const en: Phrasebook = {
-  start: (c) => `Looking for ${withArticle(labels(c).en)}. Move your phone slowly.`,
+  start: (c) => `Looking for ${withArticle(c)}. Move your phone slowly.`,
   found: (c, p, size) =>
-    `I found ${withArticle(labels(c).en)}, ${EN_WHERE[p]} of the camera view.` +
-    (size ? ` ${EN_SIZE[size]}` : ''),
+    `I found ${withArticle(c)}, ${EN_WHERE[p]} of the camera view.` + (size ? ` ${EN_SIZE[size]}` : ''),
   foundMany: (c, n, p, size) =>
     `I see ${n} ${labels(c).enPlural}. The largest is ${EN_WHERE[p]}.` +
     (size ? ` ${EN_SIZE[size]}` : ''),
   guide: (p) => (p === 'center' ? 'Centered.' : `Now ${EN_WHERE[p]}.`),
   lost: (c) => `I lost sight of the ${labels(c).en}. Still looking.`,
-  coaching: (c, attempt) =>
-    `Still looking for ${withArticle(labels(c).en)}. ${EN_TIPS[attempt % EN_TIPS.length]}`,
+  coaching: (c, attempt) => `Still looking for ${withArticle(c)}. ${EN_TIPS[attempt % EN_TIPS.length]}`,
+  // Was "... or tap Stop searching to end.": "stop searching" is a voice command.
   checkIn: (c) =>
-    `I haven't found ${withArticle(labels(c).en)} in the last minute. ` +
-    'Keep moving slowly, or tap Stop searching to end.',
-  resume: (c) => `Looking for ${withArticle(labels(c).en)} again.`,
+    `I haven't found ${withArticle(c)} in the last minute. ` +
+    'Keep moving the phone slowly, or tap End search to finish.',
+  resume: (c) => `Looking for ${withArticle(c)} again.`,
   stop: () => 'Stopped searching.',
+  // "HeyNavi server" became "the server": TTS must never say the wake word.
   error: (kind) =>
     ({
-      network: "I can't reach the HeyNavi server. I'll keep trying.",
-      slow: "The HeyNavi server is slow to answer. I'll keep trying.",
-      unauthorized: "The HeyNavi server didn't accept this app. Check the app token.",
-      notConfigured: "The HeyNavi server isn't set up yet. I'll keep trying.",
+      network: "I can't reach the server. I'll keep trying.",
+      slow: "The server is slow to answer. I'll keep trying.",
+      unauthorized: "The server didn't accept this app. Check the app token.",
+      notConfigured: "The server isn't set up yet. I'll keep trying.",
       cantAnalyze: "I can't analyze this view. Try pointing the camera somewhere else.",
-      server: "The HeyNavi server had a problem. I'll keep trying.",
+      server: "The server had a problem. I'll keep trying.",
       camera: "I can't get a picture from the camera. I'll keep trying.",
     })[kind],
   reconnected: () => 'Connected again.',
+  voice: {
+    // No "stop" in it: the echo gate drops every word of this line while it plays, and the user
+    // must be able to say "stop" over it.
+    help: () => 'Say find and an object, like find a chair. Say pause, resume, or repeat. To end the search, say cancel.',
+    listeningLost: () => "Voice commands stopped. I'll keep trying. The buttons still work.",
+    notUnderstood: () => "Sorry, I didn't catch that. Say help to hear what I can do.",
+    paused: () => 'Paused.',
+    nothingToPause: () => 'No search is running.',
+    nothingToResume: () => 'No search is paused.',
+    nothingToRepeat: () => "I haven't said anything yet.",
+    cameraNotReady: () => "The camera isn't ready yet.",
+  },
   ui: {
     status: (s) =>
       ({
@@ -147,71 +207,40 @@ const en: Phrasebook = {
         PAUSED: 'Paused',
         CANCELLED: 'Stopped',
       })[s],
-    startButton: (c) => `Start searching for ${withArticle(labels(c).en)}`,
-    stopButton: 'Stop searching',
+    startButton: (c) => `Start searching for ${withArticle(c)}`,
+    // Was "Stop searching": VoiceOver reads the label aloud and the microphone would hear a
+    // cancel command.
+    stopButton: 'End search',
+    // Each command comes right after "say", so no clause of a hint is itself a command.
+    startHint: (c) => `Starts the search. You can also say find ${withArticle(c)}, or say help.`,
+    // "stop searching" always ends the search; a bare "stop" over HeyNavi's speech only silences it.
+    stopHint: 'Ends the search. You can also say stop searching, or say pause.',
+    pausedHint: 'Ends the search. To continue it, say resume.',
     conceptGroup: 'Object to find',
-    languageGroup: 'Language',
+    mic: {
+      status: {
+        listening: 'Listening',
+        paused: 'Paused',
+        off: 'Mic off',
+        asking: 'Asking for microphone access',
+        'needs-permission': 'Needs microphone permission',
+        unavailable: 'Voice commands unavailable',
+        stopped: 'Mic stopped after errors',
+      },
+      turnOff: 'Turn listening off',
+      turnOffHint: 'Stops listening for voice commands. Buttons keep working.',
+      turnOn: 'Turn listening on',
+      turnOnHint: 'Listens for voice commands again.',
+      allow: 'Allow microphone',
+      allowHint: 'Shows the iOS microphone and speech recognition prompt.',
+      openSettings: 'Open Settings',
+      openSettingsHint: "Opens this app's settings, where you can allow the microphone.",
+    },
   },
 };
 
-const KO_WHERE: Record<Position, string> = { left: '왼쪽', center: '가운데', right: '오른쪽' };
+export const PHRASES: Record<Lang, Phrasebook> = { 'en-US': en };
 
-const KO_SIZE: Record<'close' | 'far', string> = {
-  close: '가까이 있는 것 같아요.',
-  far: '멀리 있는 것 같아요.',
-};
-
-const KO_TIPS = ['천천히 돌려 보세요.', '휴대폰을 위아래로 조금 기울여 보세요.'];
-
-const ko: Phrasebook = {
-  start: (c) => `${josa(labels(c).ko, '을/를')} 찾을게요. 휴대폰을 천천히 움직여 주세요.`,
-  found: (c, p, size) =>
-    `${josa(labels(c).ko, '을/를')} 찾았어요. 화면 ${KO_WHERE[p]}에 있어요.` +
-    (size ? ` ${KO_SIZE[size]}` : ''),
-  foundMany: (c, n, p, size) =>
-    `${josa(labels(c).ko, '이/가')} ${n}${labels(c).koCounter} 보여요. 가장 큰 것은 화면 ${KO_WHERE[p]}에 있어요.` +
-    (size ? ` ${KO_SIZE[size]}` : ''),
-  guide: (p) => (p === 'center' ? '가운데에 있어요.' : `이제 ${KO_WHERE[p]}에 있어요.`),
-  lost: (c) => `${josa(labels(c).ko, '이/가')} 화면에서 사라졌어요. 계속 찾을게요.`,
-  coaching: (c, attempt) =>
-    `아직 ${josa(labels(c).ko, '을/를')} 찾고 있어요. ${KO_TIPS[attempt % KO_TIPS.length]}`,
-  checkIn: (c) =>
-    `1분 동안 ${josa(labels(c).ko, '을/를')} 찾지 못했어요. ` +
-    '계속 천천히 움직이거나, 끝내려면 찾기 멈추기 버튼을 눌러 주세요.',
-  resume: (c) => `다시 ${josa(labels(c).ko, '을/를')} 찾을게요.`,
-  stop: () => '찾기를 멈췄어요.',
-  error: (kind) =>
-    ({
-      network: '헤이나비 서버에 연결할 수 없어요. 계속 시도할게요.',
-      slow: '헤이나비 서버 응답이 늦어요. 계속 시도할게요.',
-      unauthorized: '헤이나비 서버가 이 앱을 허용하지 않았어요. 앱 토큰을 확인해 주세요.',
-      notConfigured: '헤이나비 서버가 아직 준비되지 않았어요. 계속 시도할게요.',
-      cantAnalyze: '이 화면은 분석할 수 없어요. 카메라를 다른 곳으로 돌려 보세요.',
-      server: '헤이나비 서버에 문제가 생겼어요. 계속 시도할게요.',
-      camera: '카메라에서 사진을 가져올 수 없어요. 계속 시도할게요.',
-    })[kind],
-  reconnected: () => '다시 연결됐어요.',
-  ui: {
-    status: (s) =>
-      ({
-        IDLE: '대기',
-        SEARCHING: '찾는 중',
-        CONFIRMING: '확인 중',
-        FOUND: '찾음',
-        GUIDING: '안내 중',
-        LOST: '놓침',
-        PAUSED: '일시 정지',
-        CANCELLED: '멈춤',
-      })[s],
-    startButton: (c) => `${labels(c).ko} 찾기 시작`,
-    stopButton: '찾기 멈추기',
-    conceptGroup: '찾을 물건',
-    languageGroup: '언어',
-  },
-};
-
-export const PHRASES: Record<Lang, Phrasebook> = { 'en-US': en, 'ko-KR': ko };
-
-export function phrases(lang: Lang): Phrasebook {
+export function phrases(lang: Lang = 'en-US'): Phrasebook {
   return PHRASES[lang];
 }

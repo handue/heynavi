@@ -4,22 +4,13 @@ import { StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/app-text';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { ChoiceGroup } from '@/components/choice-group';
 import { Field } from '@/components/field';
 import { ToggleRow } from '@/components/toggle-row';
 import type { ReportPartsRef } from '@/diagnostics/report';
-import {
-  useSpeechRecognitionTest,
-  type SttLocale,
-} from '@/diagnostics/use-speech-recognition-test';
+import { useSpeechRecognitionTest } from '@/diagnostics/use-speech-recognition-test';
 import { colors, radii, spacing } from '@/theme/tokens';
 
 type Props = { reportRef: ReportPartsRef };
-
-const LOCALES = [
-  { value: 'en-US', label: 'English (en-US)', accessibilityLabel: 'English, U S' },
-  { value: 'ko-KR', label: '한국어 (ko-KR)', accessibilityLabel: 'Korean' },
-] as const satisfies readonly { value: SttLocale; label: string; accessibilityLabel: string }[];
 
 function yesNo(value: boolean | null): string {
   return value == null ? 'unknown' : value ? 'yes' : 'no';
@@ -36,24 +27,16 @@ export function SpeechRecognitionSection({ reportRef }: Props) {
   return (
     <Card
       title="Speech recognition (G6)"
-      subtitle="Continuous, interim results, requiresOnDeviceRecognition on.">
+      subtitle="English (en-US), continuous, interim results, requiresOnDeviceRecognition on.">
       <View style={styles.callout} accessible>
         <AppText variant="bodyStrong">
-          To prove on-device recognition, enable Airplane Mode and test both languages.
+          To prove on-device recognition, enable Airplane Mode and test English (en-US).
         </AppText>
         <AppText tone="secondary">
-          iOS silently falls back to network recognition when a language has no on-device model,
-          so only an Airplane Mode test proves it.
+          iOS silently falls back to network recognition when the language has no on-device
+          model, so only an Airplane Mode test proves it.
         </AppText>
       </View>
-
-      <ChoiceGroup
-        label="Recognition language"
-        choices={LOCALES}
-        value={stt.locale}
-        onChange={stt.setLocale}
-        disabled={stt.active}
-      />
 
       <View style={styles.fields}>
         <Field label="Permission" value={stt.permission ?? 'not checked yet'} />
