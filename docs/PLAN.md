@@ -45,10 +45,10 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 | **M0 Gates + scaffold** | Oct 29 | Repo, Expo SDK 58 app, FastAPI service, Meta client, SAM token parser plus unit tests, `bench.py` for gates G1–G4 | `pytest` passes; bench reports p50/p95 for `sam-3.1` and Spark `minimal` with our key | T | **Implemented & tested** (174 backend + 31 app tests). Bench not run yet: waiting for the key |
 | **M1 VS-1 (P0)** | Oct 29–30 | Capture queue, `/v1/detect`, confirmation, announcer v0, TTS, pause/resume, stage metrics | VS-1 acceptance on the iPhone in Expo Go | D, M | **Implemented & tested** (dev build, iPhone 16e): 6 of 6 searches in a row found the chair; a 40 s run with no chair gave 0 false "found"; stop-to-silence 11–29 ms (button and Magic Tap). See [FEASIBILITY.md §7](FEASIBILITY.md) |
 | **M2 Dev build + voice (P0)** | Oct 30 | Xcode build, expo-speech-recognition listener + watchdog, **English** command grammar, echo gate, barge-in, Magic Tap fix. Before M2 counts as complete, the remaining VS-1 checks must also pass: 5 successful searches in a row, a 30 s run with no chair and no false announcement, and measured stop latency | VS-2 works on the iPhone; G6 (en-US) and G7 resolved; VS-1 checks pass | D, T | **Implemented & tested on the iPhone 16e**: "Hey Navi, find/search a chair", stop, cancel, pause, resume, repeat by voice; echo gate and barge-in on the loudspeaker; Magic Tap with VoiceOver; G6 passed in Airplane Mode; VS-1 checks pass. Not verified: auto-lock on a release build, recovery after a call or Siri |
-| **M3 Active Search agent (P1)** | Oct 30–31 | Full state machine, `/v1/plan` lexicon + Spark, multiple instances, guiding haptics, lost/coaching prompts, cancel/change goal, attribute verify (if G4 allows) | 10 scripted searches logged; 0 repeated "found" announcements | M, T, D | Planned |
-| **M4 Announcer + context (P2)** | Oct 31–Nov 1 | Priorities, dedupe, TTL, preemption, rate limits, stale-goal dropping; Jest tests | Unit tests for every rule; no ambient speech during a search | T | Planned |
+| **M3 Active Search agent (P1)** | Oct 30–31 | **Priority: make Active Object Search reliable before adding anything.** Full state machine, `/v1/plan` lexicon + Spark, multiple instances, guiding haptics, lost/coaching prompts, cancel/change goal by voice. Attribute verify ("empty chair") only if time allows | 10 scripted searches logged on the iPhone, across several object types; 0 repeated "found" announcements | M, T, D | Planned |
+| **M4 Ambient Awareness MVP (P2)** | Oct 31–Nov 1 | Planned in detail after M3 ([ARCHITECTURE §4.4](ARCHITECTURE.md)). A limited set of proactive announcements: a few visually apparent possible obstacles (`sam-3.1`) and large scene changes (`muse-spark-1.3`). On/off and frequency by voice; dedupe and rate limits in the announcer; stop, quiet and Magic Tap interrupt it; silent during an active search; cautious, camera-relative wording. No collision-avoidance, safe-path or distance claims | On the iPhone: a scripted walk past planted objects announces them without repeats; nothing ambient during a search; every ambient line can be cut off | I, M, D | Planned |
 | **M5 Read + describe (P3)** | Nov 1 | Streamed `/v1/read` and `/v1/describe`; repeat / summarize / translate; text-hash dedupe; uncertainty phrasing | Reads 3 real signs; spoken feedback within 300 ms of each request | M, I | Planned |
-| **M6 Accessibility + UI (P2/P4)** | Nov 1–2 | Voice onboarding, settings by voice, VoiceOver audit, high contrast, wireframe styling, cautious obstacle mentions in watch mode | Core tasks completed with VoiceOver on and the screen covered | I, D | Planned |
+| **M6 Accessibility + UI (P2/P4)** | Nov 1–2 | Voice onboarding, settings by voice, VoiceOver audit, high contrast, wireframe styling | Core tasks completed with VoiceOver on and the screen covered | I, D | Planned |
 | **M7 Eval, deploy, docs** | Nov 2–3 | 40-photo eval, live-trial metrics, hosted backend, README/architecture/results, **rebuild the app** (7-day profile), record demo | Results table filled with real numbers; demo video cut | T, D | Planned |
 | **M8 Submit** | Nov 4 by 12:00 ET | Checklist: public repo, video link, team, track, theme, models used, "built during the event" section | Submitted, with a confirmation screenshot | — | Planned |
 
@@ -56,7 +56,7 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 
 1. History screen (P5)
 2. Muse Voice Transcribe push-to-talk path
-3. Watch mode / automatic obstacle mentions (P4)
+3. Ambient awareness beyond the limited M4 MVP (more obstacle types, frequent scene descriptions)
 4. Attribute verification ("empty chair")
 5. Translate / summarize for text
 6. ~~Korean~~: **cut by product decision on 2026-10-29.** The MVP is English-only, and multilingual support is a future enhancement (see ARCHITECTURE §12)
@@ -81,9 +81,10 @@ The backend logs the cost of each session, so these estimates get replaced with 
 | 0:00–0:20 | **Problem.** Visual information is everywhere and hard to get at without sight. Most AI apps answer *one photo*. | Cold open: a phone in an unfamiliar room, screen dark |
 | 0:20–0:45 | **Voice-first.** VoiceOver on; Magic Tap starts HeyNavi; spoken English onboarding | Phone screen and room, side by side |
 | 0:45–1:35 | **Signature search.** "Hey Navi, find my chair." The user sweeps slowly: "Still looking…" → candidate → "I found a chair, on the left" → guiding pulses → "Centered." Then they change the goal mid-search ("Actually, find the door") and stop by voice. | Live overlay of SAM boxes, the state chip (SEARCHING → CONFIRMING → FOUND), and a latency readout |
-| 1:35–2:05 | **Text reader.** "Read that sign" → reads it, "repeat that", then "summarize that" | Text card from wireframe 05 |
-| 2:05–2:35 | **Engineering.** Architecture diagram; why SAM 3.1 runs the main loop and Muse Spark plans and verifies; state machine; announcement engine; measured p50/p95 | Diagram + metrics table |
-| 2:35–3:00 | **Impact and honesty.** Who it helps, real results, limits (doesn't replace a cane), what's next | Results + disclaimer |
+| 1:35–1:55 | **Proactive awareness.** With no request running, HeyNavi mentions something new: "A box is visible in the lower center of the camera view." The user says "quiet" and it stops | Ambient line on screen, live SAM box |
+| 1:55–2:15 | **Text reader.** "Read that sign" → reads it, "repeat that", then "summarize that" | Text card from wireframe 05 |
+| 2:15–2:40 | **Engineering.** Architecture diagram; why SAM 3.1 runs the main loop and Muse Spark plans and verifies; state machine; announcement engine; measured p50/p95 | Diagram + metrics table |
+| 2:40–3:00 | **Impact and honesty.** Who it helps, real results, limits (doesn't replace a cane), what's next | Results + disclaimer |
 
 Rules: only show features built during the event. Every model output shown must be live. Earbuds for the recording, which also avoids echo in the audio.
 

@@ -31,6 +31,8 @@ Most image-description apps answer one photo at a time. HeyNavi keeps a goal run
 - **Muse Spark** (Meta) interprets requests, double-checks findings, describes scenes and reads text.
 - **The app** confirms an object across several frames, decides what is worth saying, and lets you interrupt at any time by voice or touch.
 
+Alongside that goal-directed search, HeyNavi is planned to offer limited **ambient awareness**: on its own, it mentions a few meaningful scene changes and visually apparent possible obstacles. You can turn it off or make it less frequent, and it never claims a path is safe. (Planned after M3; see [docs/ARCHITECTURE.md §4.4](docs/ARCHITECTURE.md).)
+
 ## Docs
 
 - [docs/FEASIBILITY.md](docs/FEASIBILITY.md): what we verified about the Meta models, Expo and iOS, with sources
