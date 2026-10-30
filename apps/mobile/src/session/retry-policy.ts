@@ -22,6 +22,7 @@ const SAY_AT_ONCE: ReadonlySet<ErrorKind> = new Set<ErrorKind>([
   'unauthorized',
   'notConfigured',
   'cantAnalyze',
+  'budget',
 ]);
 
 export type FailureState = {
@@ -80,6 +81,8 @@ export function errorKindFor(error: ApiError): ErrorKind {
           return 'notConfigured';
         case 'content_policy_violation':
           return 'cantAnalyze';
+        case 'budget_exhausted':
+          return 'budget';
         case 'timeout':
           return 'slow';
         default:

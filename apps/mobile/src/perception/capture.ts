@@ -39,6 +39,16 @@ export const SESSION_CAPTURE: CaptureOptions = {
   jpegCompress: 0.6,
 };
 
+/**
+ * Scene frames for Muse Spark: 768 px, the size G4 measured (median 2.8 s). Image tokens grow
+ * with resolution, and Spark needs the overall view, not small details.
+ */
+export const SCENE_CAPTURE: CaptureOptions = {
+  captureQuality: 0.8,
+  longestSide: 768,
+  jpegCompress: 0.6,
+};
+
 export type CapturedFrame = {
   /** JPEG bytes, base64, no data: prefix. */
   base64: string;

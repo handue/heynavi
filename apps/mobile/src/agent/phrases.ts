@@ -21,7 +21,7 @@ type NounForms = {
   pluralOnly?: boolean;
 };
 
-/** SAM English noun -> labels. Order is the order shown in the concept chooser. */
+/** SAM English noun -> labels for common search targets (searches start by voice only). */
 export const CONCEPTS: Record<ConceptId, NounForms> = {
   chair: { en: 'chair', enPlural: 'chairs' },
   cup: { en: 'cup', enPlural: 'cups' },
@@ -52,10 +52,15 @@ export function pluralize(noun: string): string {
   return `${noun}s`;
 }
 
-/** Concepts outside the chooser (a spoken goal) fall back to the English noun itself. */
+/** Other spoken goals fall back to the English noun itself. */
 function labels(concept: string): NounForms {
   if (isConceptId(concept)) return CONCEPTS[concept];
   return OTHER_NOUNS[concept] ?? { en: concept, enPlural: pluralize(concept) };
+}
+
+/** Plural label: chair -> chairs, person -> people, keys -> keys. */
+export function pluralLabel(concept: string): string {
+  return labels(concept).enPlural;
 }
 
 /** Kept with a `lang` parameter so more languages can come back without touching callers. */
@@ -65,7 +70,8 @@ export function conceptLabel(concept: string, _lang: Lang = 'en-US'): string {
 
 // --- English helpers --------------------------------------------------------------------------
 
-function withArticle(concept: string): string {
+/** "a chair", "an umbrella", "keys". */
+export function withArticle(concept: string): string {
   const l = labels(concept);
   if (l.pluralOnly) return l.en;
   return `${/^[aeiou]/i.test(l.en) ? 'an' : 'a'} ${l.en}`;
@@ -80,7 +86,9 @@ export type ErrorKind =
   | 'notConfigured'
   | 'cantAnalyze'
   | 'server'
-  | 'camera';
+  | 'camera'
+  /** The backend's daily spending limit for model calls is reached (HTTP 503 budget_exhausted). */
+  | 'budget';
 
 /** Mic indicator states (voice-session.ts micStatus). */
 export type MicStatusLabel =
@@ -119,14 +127,11 @@ export type Phrasebook = {
   };
   ui: {
     status(status: SearchStatus): string;
-    startButton(concept: string): string;
     stopButton: string;
-    /** VoiceOver hints for the big Start / End button; they mention the voice commands. */
-    startHint(concept: string): string;
+    /** VoiceOver hint for the End search button; it mentions the voice commands. */
     stopHint: string;
     /** The End button's hint while the search is paused. */
     pausedHint: string;
-    conceptGroup: string;
     mic: {
       /** Static text next to the mic button (not a live region: the app speaks for itself). */
       status: Record<MicStatusLabel, string>;
@@ -181,12 +186,15 @@ const en: Phrasebook = {
       cantAnalyze: "I can't analyze this view. Try pointing the camera somewhere else.",
       server: "The server had a problem. I'll keep trying.",
       camera: "I can't get a picture from the camera. I'll keep trying.",
+      budget: "Today's limit for AI model calls is reached, so I can't look right now.",
     })[kind],
   reconnected: () => 'Connected again.',
   voice: {
     // No "stop" in it: the echo gate drops every word of this line while it plays, and the user
     // must be able to say "stop" over it.
-    help: () => 'Say find and an object, like find a chair. Say pause, resume, or repeat. To end the search, say cancel.',
+    help: () =>
+      "Say what's around me, or find and an object, like find a chair. Say quieter, or more detail. " +
+      'Say pause, resume, or repeat. To end a search, say cancel.',
     listeningLost: () => "Voice commands stopped. I'll keep trying. The buttons still work.",
     notUnderstood: () => "Sorry, I didn't catch that. Say help to hear what I can do.",
     paused: () => 'Paused.',
@@ -207,16 +215,12 @@ const en: Phrasebook = {
         PAUSED: 'Paused',
         CANCELLED: 'Stopped',
       })[s],
-    startButton: (c) => `Start searching for ${withArticle(c)}`,
     // Was "Stop searching": VoiceOver reads the label aloud and the microphone would hear a
     // cancel command.
     stopButton: 'End search',
-    // Each command comes right after "say", so no clause of a hint is itself a command.
-    startHint: (c) => `Starts the search. You can also say find ${withArticle(c)}, or say help.`,
     // "stop searching" always ends the search; a bare "stop" over HeyNavi's speech only silences it.
     stopHint: 'Ends the search. You can also say stop searching, or say pause.',
     pausedHint: 'Ends the search. To continue it, say resume.',
-    conceptGroup: 'Object to find',
     mic: {
       status: {
         listening: 'Listening',

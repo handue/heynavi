@@ -174,16 +174,14 @@ We label only this loop as "agentic". The open-weight bonus stays out of scope.
 | Seen as a "Simple Image Analyzer" | Medium / Critical | Positioning | Show memory, decisions and SAM checks live, not single answers |
 | Scope creep | High / High | Daily check | The gates and the cut list above |
 
-## 8. Proposed wireframe changes (visual identity unchanged)
+## 8. Wireframe changes (visual identity unchanged)
 
-1. **One camera session with modes.** The session opens in Explore. Search and Navigate are goals shown in the status pill, and the camera never unmounts.
-2. **Scene memory panel.** The last few items, each with a *proposed / checked* chip. This is the most important visual for judges, together with the search-state strip.
-3. **Two kinds of card.**
-   - The **Camera** card holds observations, with camera-relative wording.
-   - The **Route** card holds map instructions, with "about" distances and the GPS accuracy.
+Decided 2026-10-30: HeyNavi is not an object-picker app. The session screen is camera first, with minimal controls ([ARCHITECTURE §3.3](ARCHITECTURE.md)).
 
-   The two never share a card.
-4. **No distance claims from the camera.** "About 1 meter" and "2 meters ahead" are gone from the old wireframes. "Caution ahead" becomes "Possible obstacle in view".
-5. **Preview at 9:16, not full-bleed**, so captures keep the full field of view.
-6. **A large tap-anywhere area** for stop and listen, plus an Ask button.
+1. **No object selection anywhere.** The concept chooser (Chair, Cup, Door…) and "Start searching for a chair" are removed. Searches start by voice ("Find a chair", "Where is the entrance").
+2. **Camera preview first**, at 9:16 so captures keep the full field of view, with tap-anywhere doing what Magic Tap does.
+3. **Status and "Last said"**: what HeyNavi is doing (Observing / Observing paused / the search strip) and the line it last spoke. No lists of detected objects.
+4. **Two controls**: Pause / Resume observing (End search during a search) and Describe the view, plus the mic status.
+5. **Two kinds of card later (M5)**: a Route card for map instructions appears only while navigating; camera observations stay in "Last said".
+6. **No distance claims from the camera.** "Caution ahead" becomes "Possible obstacle in view" (M4, after SAM confirms).
 7. **Onboarding:** spoken safety lines (cane and guide dog, no guarantee of detecting obstacles, map and GPS limits) and spoken recovery when a permission is denied.

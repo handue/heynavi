@@ -219,3 +219,93 @@ describe('watchdog, clear and repeat', () => {
     assert.deepEqual(h.log, ['speak:I found a chair.', 'speak:I found a chair.']);
   });
 });
+
+describe('channels and speech start', () => {
+  function channelHarness() {
+    let time = 0;
+    const log: string[] = [];
+    const started: [string, number][] = [];
+    let pending: SpeakCallbacks | null = null;
+    const speaker: Speaker = {
+      speak(text, _lang, callbacks) {
+        log.push(`speak:${text}`);
+        pending = callbacks;
+      },
+      stop() {
+        log.push('stop');
+        const callbacks = pending;
+        pending = null;
+        callbacks?.onStopped();
+      },
+    };
+    const announcer = createAnnouncer(speaker, {
+      now: () => time,
+      onSpeechStart: (a, at) => started.push([a.key, at]),
+      setTimer: () => null,
+      clearTimer: () => {},
+    });
+    return {
+      announcer,
+      log,
+      started,
+      startAudio(at: number) {
+        time = at;
+        pending?.onStart?.();
+      },
+      finish() {
+        const callbacks = pending;
+        pending = null;
+        callbacks?.onDone();
+      },
+    };
+  }
+  const line = (key: string, channel?: Announcement['channel'], priority: Priority = 2): Announcement => ({
+    key,
+    priority,
+    text: key,
+    lang: 'en-US',
+    ttlMs: 10_000,
+    dedupeMs: 0,
+    goalId: null,
+    ...(channel ? { channel } : {}),
+  });
+
+  it('clearChannel drops queued and current lines of that channel only', () => {
+    const h = channelHarness();
+    h.announcer.announce(line('camera-1', 'camera'));
+    h.announcer.announce(line('search-1'));
+    h.announcer.announce(line('camera-2', 'camera'));
+    h.announcer.clearChannel('camera');
+    assert.deepEqual(h.log, ['speak:camera-1', 'stop', 'speak:search-1']);
+    assert.deepEqual(h.announcer.queued, []);
+    assert.equal(h.announcer.speaking?.key, 'search-1');
+  });
+
+  it('clearChannel leaves other speech playing', () => {
+    const h = channelHarness();
+    h.announcer.announce(line('reply', 'reply', 0));
+    h.announcer.announce(line('camera', 'camera'));
+    h.announcer.clearChannel('camera');
+    assert.deepEqual(h.log, ['speak:reply']);
+    h.finish();
+    assert.deepEqual(h.log, ['speak:reply']);
+  });
+
+  it('reports when the speaker starts each line, and keeps the channel', () => {
+    const h = channelHarness();
+    h.announcer.announce(line('camera-1', 'camera'));
+    h.startAudio(120);
+    assert.deepEqual(h.started, [['camera-1', 120]]);
+    assert.equal(h.announcer.speaking?.channel, 'camera');
+  });
+
+  it('repeats a camera line as a reply, so pausing updates does not cut it', () => {
+    const h = channelHarness();
+    h.announcer.announce(line('camera-1', 'camera'));
+    h.finish();
+    h.announcer.repeat();
+    assert.equal(h.announcer.speaking?.channel, 'reply');
+    h.announcer.clearChannel('camera');
+    assert.equal(h.announcer.speaking?.channel, 'reply');
+  });
+});

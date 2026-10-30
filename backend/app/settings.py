@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     meta_timeout_seconds: float = Field(default=20.0, gt=0)
     # Wall-clock budget for one sam-3.1 call from POST /v1/detect (never retried there).
     sam_timeout_seconds: float = Field(default=4.0, gt=0)
+    # Wall-clock budget for one Muse Spark call from POST /v1/scene (never retried there).
+    scene_timeout_seconds: float = Field(default=12.0, gt=0)
+    # Cap on Spark's output for one scene reply, reasoning tokens included.
+    scene_max_output_tokens: int = Field(default=2000, ge=16)
+    # Model calls stop for the rest of the UTC day once their list-price cost reaches this.
+    daily_budget_usd: float = Field(default=25.0, gt=0)
+    # The day's usage, kept across restarts; empty means in memory only. Relative to backend/.
+    usage_file: Path | None = Path("var/usage.json")
+    # POST /v1/metrics appends here (JSON lines); empty means log only. Relative to backend/.
+    metrics_file: Path | None = Path("var/metrics.jsonl")
     heynavi_app_token: SecretStr | None = Field(default=None, repr=False)
     log_level: str = "INFO"
 
@@ -66,6 +76,13 @@ class Settings(BaseSettings):
         if level not in logging.getLevelNamesMapping():
             raise ValueError(f"unknown log level {value!r}")
         return level
+
+    @field_validator("usage_file", "metrics_file")
+    @classmethod
+    def _resolve_path(cls, value: Path | None) -> Path | None:
+        if value is None or str(value).strip() in ("", "."):
+            return None
+        return value if value.is_absolute() else BACKEND_DIR / value
 
     @property
     def key_configured(self) -> bool:

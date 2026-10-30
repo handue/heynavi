@@ -34,6 +34,7 @@ const FAILING_LABEL: Record<ErrorKind, string> = {
   cantAnalyze: 'View rejected',
   server: 'Server error',
   camera: 'Camera error',
+  budget: 'Daily limit reached',
 };
 
 /**

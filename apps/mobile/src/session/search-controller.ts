@@ -1,9 +1,9 @@
 /**
  * The search session without React: capture loop, reducer, effects, metrics and error speech.
  * Camera, network, speech, haptics and the clock are injected, so the loop itself runs under
- * `node --test` with fakes. `use-search-session.ts` wires in the real ones.
+ * `node --test` with fakes. `use-camera-session.ts` wires in the real ones.
  */
-import { createAnnouncer, type Speaker } from '../agent/announcer.ts';
+import { createAnnouncer, type Announcer, type Speaker } from '../agent/announcer.ts';
 import { conceptLabel, phrases, type ErrorKind } from '../agent/phrases.ts';
 import { SEARCH, initialSearchState, isActive, reduce, type SearchEvent } from '../agent/search-machine.ts';
 import type { Detection, Effect, Goal, HapticKind, Lang, SearchState } from '../agent/types.ts';
@@ -47,6 +47,8 @@ export type ControllerDeps = {
   capture(signal: AbortSignal): Promise<FrameCapture>;
   detect(request: DetectRequest, signal: AbortSignal): Promise<DetectResult>;
   speaker: Speaker;
+  /** The session's shared announcer (so scene lines and search lines never overlap); by default one on `speaker`. */
+  announcer?: Announcer;
   haptic(kind: HapticKind): void;
   /** Monotonic ms (performance.now in the app). */
   now(): number;
@@ -96,7 +98,7 @@ export type SearchController = {
 export function createSearchController(deps: ControllerDeps): SearchController {
   const options: LoopOptions = { ...LOOP, ...deps.loop };
   const retryDelay = deps.retryDelay ?? retryDelayMs;
-  const announcer = createAnnouncer(deps.speaker, { now: deps.now });
+  const announcer = deps.announcer ?? createAnnouncer(deps.speaker, { now: deps.now });
   const listeners = new Set<() => void>();
 
   let search: SearchState = initialSearchState();

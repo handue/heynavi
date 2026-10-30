@@ -3,7 +3,7 @@
  * TTL and stale-goal dropping. The speaker, clock and timers are injected so every rule is
  * unit-testable without expo-speech.
  */
-import type { AnnounceEffect, Lang } from './types.ts';
+import type { AnnounceEffect, Channel, Lang } from './types.ts';
 
 export type Announcement = Omit<AnnounceEffect, 'type'>;
 
@@ -25,6 +25,8 @@ export type AnnouncerOptions = {
   now: () => number;
   /** Called for every announcement that is never spoken (or cut off), for logs and tests. */
   onDrop?: (announcement: Announcement, reason: DropReason) => void;
+  /** Called when the speaker reports that an announcement started playing (latency metrics). */
+  onSpeechStart?: (announcement: Announcement, at: number) => void;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
 };
@@ -36,6 +38,8 @@ export type Announcer = {
   setGoal(goalId: string | null): void;
   /** Stops speech and empties the queue. */
   clear(): void;
+  /** Drops queued lines of one channel, and stops the current line if it is one. */
+  clearChannel(channel: Channel): void;
   /** Speaks the last utterance again, as a priority-0 reply. */
   repeat(): boolean;
   readonly speaking: Announcement | null;
@@ -99,7 +103,13 @@ export function createAnnouncer(speaker: Speaker, options: AnnouncerOptions): An
       speaker.stop();
       finished();
     }, watchdogMs(entry.text));
-    speaker.speak(entry.text, entry.lang, { onDone: finished, onStopped: finished });
+    speaker.speak(entry.text, entry.lang, {
+      onStart: () => {
+        if (mine === token) options.onSpeechStart?.(strip(entry), now());
+      },
+      onDone: finished,
+      onStopped: finished,
+    });
   }
 
   function pump() {
@@ -172,6 +182,18 @@ export function createAnnouncer(speaker: Speaker, options: AnnouncerOptions): An
       else speaker.stop();
     },
 
+    clearChannel(channel) {
+      queue = queue.filter((q) => {
+        if (q.channel !== channel) return true;
+        drop(q, 'cleared');
+        return false;
+      });
+      if (current?.channel === channel) {
+        stopCurrent('cleared');
+        pump();
+      }
+    },
+
     repeat() {
       if (!lastUtterance) return false;
       return announce({
@@ -181,6 +203,8 @@ export function createAnnouncer(speaker: Speaker, options: AnnouncerOptions): An
         dedupeMs: 0,
         goalId: null,
         ttlMs: 5000,
+        // A repeated camera line is now a reply: pausing updates must not cut it off.
+        channel: 'reply',
       });
     },
 
@@ -197,6 +221,8 @@ export function createAnnouncer(speaker: Speaker, options: AnnouncerOptions): An
 }
 
 function strip(entry: Announcement): Announcement {
-  const { key, priority, text, lang, ttlMs, dedupeMs, goalId } = entry;
-  return { key, priority, text, lang, ttlMs, dedupeMs, goalId };
+  const { key, priority, text, lang, ttlMs, dedupeMs, goalId, channel } = entry;
+  return channel === undefined
+    ? { key, priority, text, lang, ttlMs, dedupeMs, goalId }
+    : { key, priority, text, lang, ttlMs, dedupeMs, goalId, channel };
 }

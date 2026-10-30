@@ -71,14 +71,13 @@ describe('English phrases', () => {
   });
 
   it('labels the toggle button', () => {
-    assert.equal(en.ui.startButton('chair'), 'Start searching for a chair');
     assert.equal(en.ui.stopButton, 'End search');
   });
 
   it('has the specified voice replies', () => {
     assert.equal(
       en.voice.help(),
-      'Say find and an object, like find a chair. Say pause, resume, or repeat. To end the search, say cancel.',
+      "Say what's around me, or find and an object, like find a chair. Say quieter, or more detail. Say pause, resume, or repeat. To end a search, say cancel.",
     );
     assert.equal(en.voice.listeningLost(), "Voice commands stopped. I'll keep trying. The buttons still work.");
     assert.equal(en.ui.stopHint, 'Ends the search. You can also say stop searching, or say pause.');
@@ -89,7 +88,7 @@ describe('English phrases', () => {
 
 const POSITIONS: Position[] = ['left', 'center', 'right'];
 const STATUSES: SearchStatus[] = ['IDLE', 'SEARCHING', 'CONFIRMING', 'FOUND', 'GUIDING', 'LOST', 'PAUSED', 'CANCELLED'];
-const ERRORS: ErrorKind[] = ['network', 'slow', 'unauthorized', 'notConfigured', 'cantAnalyze', 'server', 'camera'];
+const ERRORS: ErrorKind[] = ['network', 'slow', 'unauthorized', 'notConfigured', 'cantAnalyze', 'server', 'camera', 'budget'];
 // Spoken goals whose names contain a command word, too: "stop sign", "help desk".
 const SPOKEN_CONCEPTS = [
   ...CONCEPT_IDS,
@@ -127,10 +126,9 @@ function spokenLines(p: Phrasebook): string[] {
 /** Every string VoiceOver reads aloud on the camera screen. */
 function uiStrings(p: Phrasebook): string[] {
   const { ui } = p;
-  const lines: string[] = [ui.stopButton, ui.stopHint, ui.pausedHint, ui.conceptGroup, ...Object.values(ui.mic.status)];
+  const lines: string[] = [ui.stopButton, ui.stopHint, ui.pausedHint, ...Object.values(ui.mic.status)];
   lines.push(ui.mic.turnOff, ui.mic.turnOffHint, ui.mic.turnOn, ui.mic.turnOnHint);
   lines.push(ui.mic.allow, ui.mic.allowHint, ui.mic.openSettings, ui.mic.openSettingsHint);
-  for (const c of SPOKEN_CONCEPTS) lines.push(ui.startButton(c), ui.startHint(c));
   for (const s of STATUSES) lines.push(ui.status(s));
   return lines;
 }

@@ -85,6 +85,12 @@ export type SearchState = {
 /** 0 reply to the user, 1 goal event, 2 status, 3 ambient. Lower number wins. */
 export type Priority = 0 | 1 | 2 | 3;
 
+/**
+ * Which kind of speech a line is (ARCHITECTURE 6.1). Camera observations can be cancelled as a
+ * group (a search starts, updates pause) without touching replies or search lines.
+ */
+export type Channel = 'reply' | 'camera' | 'goal' | 'status';
+
 export type AnnounceEffect = {
   type: 'announce';
   /** Dedupe key, e.g. "found:<goal>:<episode>:left". */
@@ -98,6 +104,8 @@ export type AnnounceEffect = {
   dedupeMs: number;
   /** Dropped if the goal changed before it is spoken; null = not tied to a goal. */
   goalId: string | null;
+  /** Unset for search lines (M1/M2), which predate channels. */
+  channel?: Channel;
 };
 
 export type HapticKind = 'found' | 'centered';

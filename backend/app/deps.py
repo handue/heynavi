@@ -10,6 +10,7 @@ from typing import Annotated, Any
 from fastapi import Depends, Header, Request, Response
 from fastapi.routing import APIRoute
 
+from app.budget import UsageMeter
 from app.errors import ApiError
 from app.meta.client import MetaClient
 from app.settings import Settings
@@ -26,6 +27,11 @@ def get_meta_client(request: Request) -> MetaClient | None:
     """None when MODEL_API_KEY is not configured."""
     client: MetaClient | None = request.app.state.meta_client
     return client
+
+
+def get_usage_meter(request: Request) -> UsageMeter:
+    meter: UsageMeter = request.app.state.usage_meter
+    return meter
 
 
 def check_app_token(settings: Settings, token: str | None) -> None:

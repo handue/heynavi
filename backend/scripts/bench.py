@@ -35,11 +35,9 @@ from app.meta.spark import (
     extract_finish_reason,
     extract_usage,
 )
+from app.pricing import SAM_USD_PER_IMAGE, SPARK_USD_PER_INPUT_TOKEN, SPARK_USD_PER_OUTPUT_TOKEN
 from app.settings import BACKEND_DIR, ENV_FILE, Settings, get_settings, invalid_settings_message
 
-SAM_USD_PER_IMAGE = 2.50 / 1000
-SPARK_USD_PER_INPUT_TOKEN = 1.25 / 1_000_000
-SPARK_USD_PER_OUTPUT_TOKEN = 4.25 / 1_000_000  # reasoning tokens are billed as output
 G2_P50_LIMIT_MS = 1500.0
 G2_MAX_ERROR_RATE = 0.10
 G3_ATTEMPTS = 3  # the first call, plus up to 2 more when the failure looks transient

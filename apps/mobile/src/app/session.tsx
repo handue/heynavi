@@ -14,14 +14,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/app-text';
 import { Button } from '@/components/button';
-import { RadioGroup, type RadioOption } from '@/components/radio-group';
-import { CONCEPT_IDS, conceptLabel, isConceptId, phrases } from '@/agent/phrases';
+import { conceptLabel, phrases } from '@/agent/phrases';
 import { PICTURE_SIZE } from '@/perception/capture';
 import { DetectionOverlay } from '@/session/detection-overlay';
 import { LatencyHud } from '@/session/latency-hud';
 import { MicStatus } from '@/session/mic-status';
+import { SessionStatus } from '@/session/session-status';
 import { StateStrip } from '@/session/state-strip';
-import { useSearchSession } from '@/session/use-search-session';
+import { useCameraSession } from '@/session/use-camera-session';
+import { scenePhrases } from '@/scene/scene-phrases';
 import { colors, radii, spacing } from '@/theme/tokens';
 
 /** Portrait 9:16, the same aspect as the 1280x720 capture, so nothing is cropped. */
@@ -46,10 +47,12 @@ function magicTapProps(handler: () => void): ViewProps {
 }
 
 /**
- * Camera session: "Find a chair" (or the button, or Magic Tap) -> "Looking for a chair" ->
- * sam-3.1 every ~1 s -> 2-of-3 confirmation -> spoken position + haptic. "Stop", the button or
- * Magic Tap ends it; "Pause", "Resume" and "Repeat" work by voice. The VoiceOver escape gesture
- * stops it and goes back.
+ * Camera session (ARCHITECTURE 3.3), camera first: the preview, what HeyNavi is doing and what it
+ * last said, the mic status, and two controls. HeyNavi starts observing once the camera is ready
+ * and mentions what it notices. Everything else is by voice: "What's around me", "Find a chair",
+ * "Where is the entrance" (no object picker). Magic Tap and a tap on the preview silence speech,
+ * end a search, or pause and resume observing. The VoiceOver escape gesture ends a search and
+ * goes back.
  */
 export default function SessionScreen() {
   const router = useRouter();
@@ -61,29 +64,22 @@ export default function SessionScreen() {
     canSearch,
     onCameraReady,
     snapshot,
+    sceneSnapshot,
+    lastSaid,
     concept,
-    active,
-    setConcept,
+    searching,
+    updatesHeld,
+    pressPrimary,
+    tapAnywhere,
+    describe,
     stop,
-    toggle: toggleSearch,
     voice,
-  } = useSearchSession({ cameraAllowed: permission?.granted === true });
+  } = useCameraSession({ cameraAllowed: permission?.granted === true });
   const ui = phrases('en-US').ui;
-  // A paused search (voice "pause") is still one the big button ends.
-  const searching = active || snapshot.search.status === 'PAUSED';
+  const sceneUi = scenePhrases.ui;
+  const sessionState = sceneSnapshot.running ? 'observing' : sceneSnapshot.started ? 'paused' : 'starting';
 
   const preview = fitPreview(area.width, area.height);
-  // A spoken target that is not one of the six ("find my keys") shows up as its own option.
-  const conceptIds: string[] = isConceptId(concept) ? CONCEPT_IDS : [...CONCEPT_IDS, concept];
-  const conceptOptions: RadioOption<string>[] = conceptIds.map((id) => ({
-    value: id,
-    label: capitalize(conceptLabel(id)),
-    lang: 'en-US',
-  }));
-
-  function toggle(source: 'button' | 'magic-tap' = 'button') {
-    if (searching || canSearch) toggleSearch(source);
-  }
 
   function onAreaLayout(event: LayoutChangeEvent) {
     const { width, height } = event.nativeEvent.layout;
@@ -93,23 +89,16 @@ export default function SessionScreen() {
   return (
     <SafeAreaView edges={['bottom']} style={styles.safeArea}>
       {/* collapsable={false}: Fabric flattens a layout-only View, and then the escape gesture and
-          Magic Tap have no native view to reach. Magic Tap starts or ends the search. */}
+          Magic Tap have no native view to reach. Magic Tap silences speech, ends a search, or
+          holds and restarts the scene updates. */}
       <View
         collapsable={false}
         style={styles.root}
-        {...magicTapProps(() => toggle('magic-tap'))}
+        {...magicTapProps(() => tapAnywhere('magic-tap'))}
         onAccessibilityEscape={() => {
           stop();
           router.back();
         }}>
-        <StateStrip
-          target={capitalize(conceptLabel(concept))}
-          status={snapshot.search.status}
-          statusLabel={ui.status(snapshot.search.status)}
-          window={snapshot.search.window}
-          failing={snapshot.failing}
-        />
-
         <View style={styles.previewArea} onLayout={onAreaLayout}>
           {permission?.granted ? (
             // Mounted once permission is granted, whatever the layout, and never moved: a stable
@@ -133,17 +122,28 @@ export default function SessionScreen() {
                 width={preview.width}
                 height={preview.height}
               />
-              <LatencyHud
-                lastRttMs={snapshot.lastRttMs}
-                p50RttMs={snapshot.p50RttMs}
-                lastSamMs={snapshot.lastSamMs}
-                frames={snapshot.frames}
-              />
-              {/* Tap anywhere on the preview to start or stop. VoiceOver users have the button, so
-                  this duplicate target stays out of the accessibility tree. */}
+              {searching ? (
+                <LatencyHud
+                  model="SAM"
+                  lastRttMs={snapshot.lastRttMs}
+                  p50RttMs={snapshot.p50RttMs}
+                  lastModelMs={snapshot.lastSamMs}
+                  frames={snapshot.frames}
+                />
+              ) : (
+                <LatencyHud
+                  model="Spark"
+                  lastRttMs={sceneSnapshot.lastRttMs}
+                  p50RttMs={sceneSnapshot.p50RttMs}
+                  lastModelMs={sceneSnapshot.lastSparkMs}
+                  frames={sceneSnapshot.calls}
+                />
+              )}
+              {/* Tap anywhere on the preview: same as Magic Tap. VoiceOver users have the buttons
+                  and Magic Tap, so this duplicate target stays out of the accessibility tree. */}
               <Pressable
                 style={StyleSheet.absoluteFill}
-                onPress={() => toggle('button')}
+                onPress={() => tapAnywhere('button')}
                 accessible={false}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
@@ -161,31 +161,43 @@ export default function SessionScreen() {
         {/* At large text sizes the controls scroll instead of squeezing the preview. */}
         <ScrollView style={styles.controlsScroll} contentContainerStyle={styles.controls}>
           {mountError ? <AppText tone="danger">Camera failed to start: {mountError}</AppText> : null}
+          {searching ? (
+            <StateStrip
+              target={capitalize(conceptLabel(concept))}
+              status={snapshot.search.status}
+              statusLabel={ui.status(snapshot.search.status)}
+              window={snapshot.search.window}
+              failing={snapshot.failing}
+            />
+          ) : null}
+          <SessionStatus state={searching ? null : sessionState} verbosity={sceneSnapshot.verbosity} lastSaid={lastSaid} />
           <MicStatus
             status={voice.micStatus}
             label={voice.micLabel}
             canAskAgain={voice.voiceState.canAskAgain}
             onPress={voice.pressMic}
           />
-          <RadioGroup
-            label={ui.conceptGroup}
-            options={conceptOptions}
-            value={concept}
-            onChange={setConcept}
-            scroll
-          />
           <Button
             large
-            label={searching ? ui.stopButton : ui.startButton(concept)}
+            label={searching ? ui.stopButton : updatesHeld ? sceneUi.resumeButton : sceneUi.pauseButton}
             accessibilityHint={
-              !searching
-                ? ui.startHint(concept)
-                : snapshot.search.status === 'PAUSED'
+              searching
+                ? snapshot.search.status === 'PAUSED'
                   ? ui.pausedHint
                   : ui.stopHint
+                : updatesHeld
+                  ? sceneUi.resumeHint
+                  : sceneUi.pauseHint
             }
             disabled={!searching && !canSearch}
-            onPress={() => toggle('button')}
+            onPress={pressPrimary}
+          />
+          <Button
+            variant="secondary"
+            label={sceneUi.describeButton}
+            accessibilityHint={sceneUi.describeHint}
+            disabled={!canSearch}
+            onPress={describe}
           />
         </ScrollView>
       </View>
@@ -201,7 +213,7 @@ function PermissionPrompt(props: { checking: boolean; canAskAgain: boolean; onRe
     return (
       <View style={styles.permission}>
         <AppText tone="danger">
-          Camera access is off. HeyNavi needs the camera to look for objects. Allow it in Settings,
+          Camera access is off. The camera is needed to describe your surroundings. Allow it in Settings,
           HeyNavi, Camera, then come back.
         </AppText>
         <Button label="Open Settings" variant="secondary" onPress={() => Linking.openSettings()} />
@@ -210,7 +222,7 @@ function PermissionPrompt(props: { checking: boolean; canAskAgain: boolean; onRe
   }
   return (
     <View style={styles.permission}>
-      <AppText>HeyNavi needs the camera to look for objects around you.</AppText>
+      <AppText>The camera is needed to describe your surroundings.</AppText>
       <Button
         label="Allow camera access"
         accessibilityHint="Shows the iOS camera permission prompt."

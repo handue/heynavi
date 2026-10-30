@@ -177,7 +177,7 @@ describe('barge-in after the echo', () => {
     });
     assert.equal(alignEcho('we should stop', [FOUND]), null, 'no echo at all');
     // "say pause ... or repeat" then a second "repeat": only the one out of order is the tail.
-    assert.deepEqual(alignEcho('or repeat to end the search say cancel cancel', [HELP])?.tail, []);
+    assert.deepEqual(alignEcho('or repeat to end a search say cancel cancel', [HELP])?.tail, []);
   });
 
   it('finds the barge-in, allowing a couple of misheard words before it', () => {
