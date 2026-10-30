@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { createAnnouncer, type Speaker } from '../agent/announcer.ts';
+import type { AskRequest, AskResult } from '../api/ask-response.ts';
 import type { SceneRequest, SceneResult } from '../api/scene-response.ts';
+import { det } from '../agent/test-helpers.ts';
 import { METRICS_TAG } from '../session/metrics.ts';
 import { createSceneController, type SceneDeps } from './scene-controller.ts';
 import { sceneItem } from './scene-test-helpers.ts';
@@ -236,5 +238,62 @@ describe('scene loop', () => {
     assert.equal(h.controller.stepVerbosity(-1), true);
     assert.equal(h.controller.stepVerbosity(-1), false);
     assert.equal(h.controller.verbosity, 'quiet');
+  });
+});
+
+describe('questions', () => {
+  function askResult(request: AskRequest, over: Partial<Extract<AskResult, { ok: true }>['data']> = {}): AskResult {
+    return {
+      ok: true,
+      rttMs: 1,
+      data: {
+        answer: 'There is an entrance ahead on your right.',
+        about: { label: 'entrance', ground: 'door', visible: true, position: 'right', band: 'middle', grounded: true, detections: [det(0.85, 0.9)] },
+        search: false,
+        timings_ms: { spark: 2500, sam: 500, total: 3000 },
+        cost_usd: 0.006,
+        ...over,
+      },
+    };
+  }
+
+  it('speaks the answer as a reply, boxes what it is about, and sends the hold', async () => {
+    const asked: AskRequest[] = [];
+    const h = harness((r) => ok(r), {
+      ask: async (request) => {
+        asked.push(request);
+        return askResult(request);
+      },
+      hold: () => ({ frame: 'forward', downDeg: 10, reason: 'forward' }),
+    });
+    const outcome = await h.controller.ask('where is the entrance');
+    assert.deepEqual(outcome, { searchFor: null });
+    assert.deepEqual(h.spoken, ['There is an entrance ahead on your right.']);
+    assert.equal(asked[0].hold, 'forward');
+    assert.equal(asked[0].question, 'where is the entrance');
+    assert.deepEqual(h.controller.getSnapshot().boxes.map((b) => b.label), ['entrance']);
+    assert.equal(h.metrics('ask')[0].grounded, true);
+  });
+
+  it("says SAM's position when it disagrees with the model's", async () => {
+    const h = harness((r) => ok(r), {
+      ask: async (request) => askResult(request, { answer: 'There is an entrance ahead on your left.', about: { label: 'entrance', ground: 'door', visible: true, position: 'left', band: 'middle', grounded: true, detections: [det(0.85, 0.9)] } }),
+      hold: () => ({ frame: 'forward', downDeg: 10, reason: 'forward' }),
+    });
+    await h.controller.ask('where is the entrance');
+    assert.deepEqual(h.spoken, ['An entrance is visible ahead on your right.']);
+  });
+
+  it('hands off a search when the thing is not in view, and says when it cannot answer', async () => {
+    const h = harness((r) => ok(r), {
+      ask: async (request) =>
+        request.question === 'where is the entrance'
+          ? askResult(request, { answer: "I don't see an entrance right now.", search: true, about: { label: 'entrance', ground: 'door', visible: false, position: 'center', band: 'middle', grounded: null, detections: [] } })
+          : askResult(request, { answer: null, about: null }),
+    });
+    assert.deepEqual(await h.controller.ask('where is the entrance'), { searchFor: 'door' });
+    await h.controller.ask('is it safe to cross');
+    await until(() => h.spoken.length >= 2, 'both answers');
+    assert.deepEqual(h.spoken, ["I don't see an entrance right now.", "I can't answer that from the camera view."]);
   });
 });

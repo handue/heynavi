@@ -32,7 +32,9 @@ export type Command =
   | { type: 'fewer-updates' }
   /** Turn the proactive scene updates off or on (search and replies are unaffected). */
   | { type: 'updates-off' }
-  | { type: 'updates-on' };
+  | { type: 'updates-on' }
+  /** A question about the surroundings ("where is the entrance", "what objects are nearby"). */
+  | { type: 'ask'; question: string };
 
 export type CommandType = Command['type'];
 
@@ -63,6 +65,8 @@ const OVER_SPEECH: ReadonlySet<CommandType> = new Set<CommandType>([
   'resume',
   'repeat',
   'help',
+  // A whole question, or one said just before or after HeyNavi's echo (head/tail matching).
+  'ask',
 ]);
 
 export function acceptedOverSpeech(command: Command): boolean {
@@ -72,7 +76,9 @@ export function acceptedOverSpeech(command: Command): boolean {
 /** Same command (and, for find, the same concept). */
 export function sameCommand(a: Command, b: Command): boolean {
   if (a.type !== b.type) return false;
-  return a.type !== 'find' || (b.type === 'find' && a.concept === b.concept);
+  if (a.type === 'find') return b.type === 'find' && a.concept === b.concept;
+  if (a.type === 'ask') return b.type === 'ask' && a.question === b.question;
+  return true;
 }
 
 /**
@@ -186,7 +192,7 @@ const MOMENTS = ['a second', 'a sec', 'a moment', 'a minute', 'one second', 'one
 const PAUSE_VERBS = ['pause', 'wait', 'hold on', 'hang on', 'stop'];
 const PAUSE_FOR_A_MOMENT = PAUSE_VERBS.flatMap((verb) => MOMENTS.flatMap((m) => [`${verb} ${m}`, `${verb} for ${m}`]));
 
-const EXACT: Readonly<Record<Exclude<CommandType, 'find'>, readonly string[]>> = {
+const EXACT: Readonly<Record<Exclude<CommandType, 'find' | 'ask'>, readonly string[]>> = {
   stop: ['stop', 'stop it', 'stop that'],
   cancel: [
     'cancel',
@@ -281,6 +287,17 @@ const EXACT: Readonly<Record<Exclude<CommandType, 'find'>, readonly string[]>> =
   'fewer-updates': [
     'quieter',
     'be quieter',
+    // Mishearings of "quieter" by on-device en-US. "spider" twice, said over HeyNavi's speech
+    // (M3 final check and M4 round 1); an unlikely word to say to HeyNavi otherwise.
+    'spider',
+    'quitter',
+    'quiet her',
+    'quite her',
+    'quiet or',
+    'quieter mode',
+    'be more quiet',
+    'speak less',
+    'less talk',
     'fewer updates',
     // Heard on the iPhone 16e for "fewer updates".
     'fewer update',
@@ -317,8 +334,8 @@ const EXACT: Readonly<Record<Exclude<CommandType, 'find'>, readonly string[]>> =
   ],
 };
 
-const EXACT_LOOKUP: ReadonlyMap<string, Exclude<CommandType, 'find'>> = new Map(
-  (Object.entries(EXACT) as [Exclude<CommandType, 'find'>, readonly string[]][]).flatMap(([type, phrases]) =>
+const EXACT_LOOKUP: ReadonlyMap<string, Exclude<CommandType, 'find' | 'ask'>> = new Map(
+  (Object.entries(EXACT) as [Exclude<CommandType, 'find' | 'ask'>, readonly string[]][]).flatMap(([type, phrases]) =>
     phrases.map((p) => [p, type] as const),
   ),
 );
@@ -340,13 +357,50 @@ const FIND_VERBS = [
   'find me',
   'find',
   'locate',
-  'where is',
-  "where's",
-  'wheres',
-  'where are',
-  "where're",
   'show me',
 ];
+
+/**
+ * How a question starts (after "Hey Navi"). "Where is the entrance" is a question since M4: the
+ * answer comes from the current view, and a search starts only if the thing is not in view.
+ */
+const QUESTION_FIRST_WORDS = new Set(['what', "what's", 'whats', "where's", 'wheres', "where're", 'which', "who's", 'whose']);
+/**
+ * Question words that start a question only with a verb after them: "where is the door", but not
+ * "where you can allow the microphone" (a clause of a VoiceOver hint).
+ */
+const QUESTION_WORD_VERBS: Readonly<Record<string, ReadonlySet<string>>> = {
+  where: new Set(['is', 'are', 'was', 'were', 'am', 'can', 'could', 'do', 'does', 'did', 'should', 'would']),
+  who: new Set(['is', 'are', 'was', 'were']),
+  how: new Set(['many', 'much', 'big', 'is', 'are', 'does', 'do', 'can']),
+};
+const QUESTION_OPENERS = [
+  'is there',
+  'are there',
+  'is anyone',
+  'is someone',
+  'is anybody',
+  'is somebody',
+  'is something',
+  'is anything',
+  'can you see',
+  'can you tell me',
+  'could you tell me',
+  'do you see',
+  'tell me what',
+  'tell me where',
+  'tell me if',
+  'tell me about',
+];
+const MAX_QUESTION_WORDS = 20;
+/** Words a question can be made of without saying what it is about: "where is the" is not one yet. */
+const QUESTION_GLUE = new Set([
+  ...QUESTION_FIRST_WORDS,
+  ...Object.keys(QUESTION_WORD_VERBS),
+  'is', 'are', 'was', 'were', 'am', 'the', 'a', 'an', 'any', 'some', 'there', 'here', 'i', 'me', 'my',
+  'you', 'your', 'do', 'does', 'did', 'can', 'could', 'should', 'would', 'see', 'tell', 'about', 'if',
+  'of', 'in', 'on', 'at', 'to', 'many', 'much',
+]);
 
 const DETERMINERS = new Set([
   'my',
@@ -548,7 +602,29 @@ export type Analysis = {
 export function analyze(transcript: string): Analysis {
   const { wake, rest } = stripWake(normalize(transcript));
   const text = stripFillers(rest);
-  return { text, wake, command: text ? matchCommand(text) : null };
+  return { text, wake, command: text ? (matchCommand(text) ?? matchQuestion(text, rest)) : null };
+}
+
+/**
+ * A question about the surroundings, or null. Checked after every other command, so "what can you
+ * do" stays help and "what's around me" stays describe. `rest` still has its leading fillers:
+ * "can you see a door" starts with the filler "can you".
+ */
+function matchQuestion(text: string, rest: string): Command | null {
+  const startsQuestion = (t: string) => {
+    const [first, second] = t.split(' ');
+    return (
+      QUESTION_FIRST_WORDS.has(first) ||
+      (second != null && QUESTION_WORD_VERBS[first]?.has(second) === true) ||
+      QUESTION_OPENERS.some((o) => startsWithPhrase(t, o))
+    );
+  };
+  const question = [rest, text].find(startsQuestion);
+  if (!question) return null;
+  const words = question.split(' ');
+  if (words.length < 2 || words.length > MAX_QUESTION_WORDS) return null;
+  if (words.every((w) => QUESTION_GLUE.has(w))) return null;
+  return { type: 'ask', question };
 }
 
 export function parse(transcript: string): Command | null {
@@ -617,6 +693,10 @@ export const CONTEXTUAL_STRINGS: readonly string[] = [
   'repeat',
   'help',
   "what's around me",
+  "what's in front of me",
+  'where is',
+  'what objects are nearby',
+  'is there',
   'describe',
   'quieter',
   'more detail',

@@ -257,3 +257,26 @@ describe('commands glued to the echo (M3, round 2 on the iPhone 16e)', () => {
     assert.equal(bargeInHead('find a chair I see a floor bag in the lower center of the camera view', ['I see a floor bag in the lower center of the camera view.']), null);
   });
 });
+
+describe('questions said over HeyNavi (M4)', () => {
+  const line = "Possible obstacle: a chair ahead on your left. A person is visible ahead on your right.";
+  it('picks a question out of the echo, before or after it', () => {
+    assert.deepEqual(
+      bargeInHead('what objects are nearby possible obstacle a chair ahead on your left a person is visible', [line])?.analysis.command,
+      { type: 'ask', question: 'what objects are nearby' },
+    );
+    assert.deepEqual(
+      bargeInTail('possible obstacle a chair ahead on your left where is the entrance', [line])?.analysis.command,
+      { type: 'ask', question: 'where is the entrance' },
+    );
+  });
+
+  it("does not take HeyNavi's own words for a question", () => {
+    // "where is the chair" repeats a word HeyNavi just said: not trusted as the user's.
+    assert.equal(bargeInHead('where is the chair possible obstacle a chair ahead on your left', [line]), null);
+  });
+
+  it('accepts a whole question over speech without the wake phrase', () => {
+    assert.deepEqual(gate(input('what objects are nearby', speaking(line))), { allow: true });
+  });
+});

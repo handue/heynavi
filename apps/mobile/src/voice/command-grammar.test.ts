@@ -37,9 +37,10 @@ describe('find', () => {
     assert.equal(parse('end search'), null);
     assert.equal(parse('Search paused.'), null);
     assert.equal(parse('search stopped'), null);
-    assert.deepEqual(parse('where is the door'), find('door'));
-    assert.deepEqual(parse("where's my phone"), find('phone'));
-    assert.deepEqual(parse('where are my keys'), find('keys'));
+    // Since M4 "where is …" is a question, answered from the view (ARCHITECTURE 7.2).
+    assert.deepEqual(parse('where is the door'), { type: 'ask', question: 'where is the door' });
+    assert.deepEqual(parse("where's my phone"), { type: 'ask', question: "where's my phone" });
+    assert.deepEqual(parse('locate my keys'), find('keys'));
     assert.deepEqual(parse('show me the sofa'), find('couch', 'sofa'));
     assert.deepEqual(parse('locate the bin'), find('trash can', 'bin'));
     assert.deepEqual(parse('can you find my wallet'), find('wallet'));
@@ -82,7 +83,7 @@ describe('find', () => {
   it('passes an unknown noun phrase of up to 3 words to SAM as said', () => {
     assert.deepEqual(parse('find my blue water bottle'), find('blue water bottle'));
     assert.deepEqual(parse('find a red umbrella'), find('red umbrella'));
-    assert.deepEqual(parse('where is the light switch'), find('light switch'));
+    assert.deepEqual(parse('find the light switch'), find('light switch'));
   });
 
   it('rejects vague requests, questions, negations and long phrases', () => {
@@ -92,7 +93,6 @@ describe('find', () => {
       "don't find a chair",
       'do not find the door',
       'find it',
-      'where is it',
       'find out',
       'show me around',
       'find something',
@@ -100,11 +100,13 @@ describe('find', () => {
       'find a chair and a table',
       'find chair or table',
       'find my big old blue water bottle',
-      'what did you find',
       'did you find a chair',
-      'how do I find the door',
     ]) {
       assert.equal(parse(text), null, text);
+    }
+    // Questions never start a search directly; since M4 they are answered from the view.
+    for (const text of ['what did you find', 'how do I find the door']) {
+      assert.equal(parse(text)?.type, 'ask', text);
     }
   });
 
@@ -253,12 +255,12 @@ describe('wake phrase', () => {
   });
 
   it('reports unknown speech after it, so the app can say it did not understand', () => {
-    const a = analyze("Hey Navi, what's the weather");
+    const a = analyze('Hey Navi, play some music');
     assert.equal(a.wake, true);
     assert.equal(a.command, null);
     assert.ok(a.text.length > 0);
     assert.deepEqual(analyze('hey navi'), { text: '', wake: true, command: null });
-    assert.equal(analyze("what's the weather").wake, false);
+    assert.equal(analyze('play some music').wake, false);
     // "navy" alone is an ordinary word, not the wake phrase.
     assert.equal(analyze('navy blue').wake, false);
   });
@@ -307,5 +309,38 @@ describe('scene commands (M3)', () => {
     assert.deepEqual(parse('look for a chair'), { type: 'find', concept: 'chair', spoken: 'chair' });
     assert.deepEqual(parse('stop'), { type: 'stop' });
     assert.equal(parse('updates'), null);
+  });
+});
+
+describe('questions (M4)', () => {
+  it('turns natural questions into asks, with or without the wake phrase', () => {
+    const asks: [string, string][] = [
+      ['Where is the entrance?', 'where is the entrance'],
+      ['What objects are nearby?', 'what objects are nearby'],
+      ['Hey Navi, is there a chair here?', 'is there a chair here'],
+      ['Can you see a door?', 'can you see a door'],
+      ['How many people are there?', 'how many people are there'],
+      ['Which way is the window', 'which way is the window'],
+    ];
+    for (const [text, question] of asks) assert.deepEqual(parse(text), { type: 'ask', question }, text);
+  });
+
+  it('keeps fixed commands that look like questions', () => {
+    assert.equal(parse("What's in front of me?")?.type, 'describe');
+    assert.equal(parse("What's around me")?.type, 'describe');
+    assert.equal(parse('What can you do')?.type, 'help');
+    assert.equal(parse('What did you say')?.type, 'repeat');
+  });
+
+  it('ignores clauses that only start with a question word', () => {
+    for (const text of ['where you can allow the microphone', 'how about that', 'who knows', 'what']) {
+      assert.equal(parse(text), null, text);
+    }
+  });
+
+  it('hears "quieter" the way the recognizer tends to', () => {
+    for (const text of ['quieter', 'Quitter', 'quiet her', 'be quieter', 'talk less', 'spider spider']) {
+      assert.equal(parse(text)?.type, 'fewer-updates', text);
+    }
   });
 });

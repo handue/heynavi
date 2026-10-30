@@ -77,7 +77,7 @@ describe('English phrases', () => {
   it('has the specified voice replies', () => {
     assert.equal(
       en.voice.help(),
-      "Say what's around me, or find and an object, like find a chair. Say quieter, or more detail. Say pause, resume, or repeat. To end a search, say cancel.",
+      "Ask about your surroundings, like what's in front of me, or where is the door. Say find and an object to search for it. Say quieter, or more detail. Say pause, resume, or repeat. To end a search, say cancel.",
     );
     assert.equal(en.voice.listeningLost(), "Voice commands stopped. I'll keep trying. The buttons still work.");
     assert.equal(en.ui.stopHint, 'Ends the search. You can also say stop searching, or say pause.');

@@ -4,7 +4,7 @@
 
 Built for the Meta Global AI Developer Hackathon 2026 (Indie Developer Track, theme: *Build for Your World*).
 
-> **Status (2026-10-30): M3 complete.** On an iPhone 16e, HeyNavi starts observing as soon as the camera opens. Muse Spark reads the view every few seconds and picks what could get in the way of someone walking; SAM 3.1 locates and confirms those objects; HeyNavi says them out loud ("Possible obstacle: a chair ahead on your left", "Steps are visible ahead") and outlines them on the preview. Directions are relative to you only when the phone is held upright and level. "What's around me" describes the view, and "Find a chair" still runs the object search. **Next:** free-form questions (M4), then outdoor readiness and a destination-routing prototype (M5, stretch). See [docs/PLAN.md](docs/PLAN.md).
+> **Status (2026-10-30): M4 complete.** On an iPhone 16e, HeyNavi starts observing as soon as the camera opens. Muse Spark reads the view every few seconds and picks what could get in the way of someone walking; SAM 3.1 locates and confirms those objects; HeyNavi says them out loud ("Possible obstacle: a chair ahead on your left", "Steps are visible ahead") and outlines them on the preview. Directions are relative to you only when the phone is held upright and level. You can ask in plain English ("What's in front of me?", "Where is the entrance?", "What objects are nearby?"), even while HeyNavi is talking, and "Find a chair" still runs the object search. **Next:** the final UI and a release build (M5), then a destination-routing prototype (M6), the demo video and submission. See [docs/PLAN.md](docs/PLAN.md).
 
 ## Run locally
 

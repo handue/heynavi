@@ -17,7 +17,7 @@ from app.deps import get_app_settings, get_meta_client, require_app_token
 from app.errors import install_error_handlers
 from app.images import MAX_UPLOAD_JPEG_BYTES, base64_length
 from app.meta.client import MetaAPIError, MetaClient
-from app.routes import detect, metrics, scene
+from app.routes import ask, detect, metrics, scene
 from app.settings import Settings, load_settings_or_exit
 
 log = logging.getLogger("heynavi")
@@ -102,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(detect.router)
     app.include_router(scene.router)
+    app.include_router(ask.router)
     app.include_router(metrics.router)
     return app
 

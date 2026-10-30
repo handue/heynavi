@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     sam_timeout_seconds: float = Field(default=4.0, gt=0)
     # Wall-clock budget for one Muse Spark call from POST /v1/scene (never retried there).
     scene_timeout_seconds: float = Field(default=12.0, gt=0)
+    # Total wait for the parallel SAM checks inside one /v1/scene call; a check still running
+    # then counts as unchecked, so one slow SAM call cannot hold up the spoken line.
+    scene_ground_timeout_seconds: float = Field(default=1.5, gt=0)
+    # Wall-clock budget for one Muse Spark call from POST /v1/ask.
+    ask_timeout_seconds: float = Field(default=12.0, gt=0)
     # Cap on Spark's output for one scene reply, reasoning tokens included.
     scene_max_output_tokens: int = Field(default=2000, ge=16)
     # Model calls stop for the rest of the UTC day once their list-price cost reaches this.

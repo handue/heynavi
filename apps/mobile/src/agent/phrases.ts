@@ -198,7 +198,8 @@ const en: Phrasebook = {
     // No "stop" in it: the echo gate drops every word of this line while it plays, and the user
     // must be able to say "stop" over it.
     help: () =>
-      "Say what's around me, or find and an object, like find a chair. Say quieter, or more detail. " +
+      "Ask about your surroundings, like what's in front of me, or where is the door. " +
+      'Say find and an object to search for it. Say quieter, or more detail. ' +
       'Say pause, resume, or repeat. To end a search, say cancel.',
     listeningLost: () => "Voice commands stopped. I'll keep trying. The buttons still work.",
     notUnderstood: () => "Sorry, I didn't catch that. Say help to hear what I can do.",
@@ -243,7 +244,7 @@ const en: Phrasebook = {
       allow: 'Allow microphone',
       allowHint: 'Shows the iOS microphone and speech recognition prompt.',
       openSettings: 'Open Settings',
-      openSettingsHint: "Opens this app's settings, where you can allow the microphone.",
+      openSettingsHint: "Opens this app's settings to allow the microphone.",
     },
   },
 };

@@ -338,12 +338,12 @@ describe('starting and routing', () => {
 
   it('answers unknown speech only when it started with "Hey Navi"', async () => {
     const h = await harness().listen();
-    h.final('what time is it');
+    h.final('play some music');
     assert.deepEqual(h.notUnderstood, [], 'bystander speech is ignored');
     h.final('hey navi');
     assert.deepEqual(h.notUnderstood, [], 'the wake phrase alone waits for more');
-    h.final('Hey Navi, what time is it');
-    assert.deepEqual(h.notUnderstood, ['Hey Navi, what time is it']);
+    h.final('Hey Navi, play some music');
+    assert.deepEqual(h.notUnderstood, ['Hey Navi, play some music']);
     h.advance(1000);
     h.final('Hey Navi, blah blah');
     assert.equal(h.notUnderstood.length, 1, 'not again right away');

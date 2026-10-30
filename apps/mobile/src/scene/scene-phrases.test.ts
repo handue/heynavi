@@ -17,7 +17,7 @@ const LABELS = ['chair', 'person', 'open door', 'stop sign', 'help desk', 'pause
 
 function spokenLines(): string[] {
   const p = scenePhrases;
-  const lines: string[] = [p.exploreStart(), p.describeAck(), p.nothingNotable(), p.updatesPaused(), p.updatesResumed(), p.updatesAlreadyOn()];
+  const lines: string[] = [p.exploreStart(), p.describeAck(), p.cannotAnswer(), p.nothingNotable(), p.updatesPaused(), p.updatesResumed(), p.updatesAlreadyOn()];
   for (const v of LEVELS) lines.push(p.verbosity(v), p.verbosityLimit(v));
   for (const label of LABELS) {
     for (const position of POSITIONS) {

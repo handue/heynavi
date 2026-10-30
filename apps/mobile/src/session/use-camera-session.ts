@@ -7,14 +7,14 @@ import { AppState } from 'react-native';
 import { createAnnouncer, type Announcer } from '@/agent/announcer';
 import { phrases } from '@/agent/phrases';
 import { isActive } from '@/agent/search-machine';
-import { describeScene, detect } from '@/api/client';
+import { askQuestion, describeScene, detect } from '@/api/client';
 import { playHaptic } from '@/feedback/haptics';
 import { SCENE_CAPTURE, SESSION_CAPTURE, captureFrame, type CaptureOptions } from '@/perception/capture';
 import { createOrientationSampler, type OrientationSampler } from '@/perception/orientation-sampler';
 import { createSceneController, type SceneController } from '@/scene/scene-controller';
 import { scenePhrases } from '@/scene/scene-phrases';
 import { createSearchController, type FrameCapture, type SearchController } from '@/session/search-controller';
-import { hasSearch, planCommand, stopsSpeech } from '@/session/voice-actions';
+import { hasSearch, planCommand, startsSearch, stopsSpeech } from '@/session/voice-actions';
 import type { HeardCommand } from '@/voice/voice-controller';
 import { createExpoSpeaker } from '@/voice/speaker';
 import { createSpeechTracker, type SpeechTracker } from '@/voice/speech-tracker';
@@ -97,6 +97,7 @@ function createSession(onDetach: () => void): Session {
   const sceneController = createSceneController({
     capture: capture(SCENE_CAPTURE),
     scene: (request, signal) => describeScene(request, { signal }),
+    ask: (request, signal) => askQuestion(request, { signal }),
     announcer,
     hold: () => orientation.current(),
     now,
@@ -264,6 +265,22 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
     scene.describeNow();
   }
 
+  /**
+   * "Where is the entrance?": answer from the view; if it is not in view, search for it. Only a
+   * "where" question starts a search: a misheard "what objects are nearby" ("… what projector
+   * nearby") once started a search for a projector (M4 round 1).
+   */
+  function ask(question: string) {
+    reply('describe-ack', scenePhrases.describeAck());
+    const mayStartSearch = startsSearch(question);
+    void scene.ask(question).then(({ searchFor }) => {
+      if (searchFor && mayStartSearch && canSearch) {
+        setConcept(searchFor);
+        controller.start(searchFor, 'en-US');
+      }
+    });
+  }
+
   function onCameraReady() {
     setCameraReady(true);
   }
@@ -311,6 +328,9 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
           break;
         case 'resume-updates':
           scene.resume('user');
+          break;
+        case 'ask':
+          ask(action.question);
           break;
         case 'verbosity': {
           const changed = scene.stepVerbosity(action.delta);

@@ -180,6 +180,13 @@ SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the l
   - "Quieter" was not recognized in the final check (heard as "possible spider spider", probably). Commands said over HeyNavi's speech are unit-tested on round 2 transcripts but not yet confirmed live.
   - Counts come from Spark ("9 shoes") and may be off.
 
+**M4 on the iPhone 16e, 2026-10-30: questions, talking over HeyNavi, latency.** One round, 32 scene looks and 5 questions, from the Metro log.
+
+- **Questions:** "where is a door" → "A white door is directly ahead.", confirmed and outlined by SAM, answer ready 2.4 s after its frame. "Where is the entrance" (none in view) → "I don't see an entrance right now, only a blank wall directly ahead." and a search for a door started; "cancel", said over HeyNavi's speech, ended it in 12 ms. Answers were ready 1.7–3.1 s after their frame (Spark 1.0–2.5 s, SAM 0.2–0.7 s).
+- **Talking over HeyNavi:** "what's in front of me" was picked out of the echo twice; "stop" cut speech in 11–12 ms; "quieter" worked once out of the echo and was heard as "spider spider" twice (now an alias, not yet re-tested).
+- **Misrecognitions that became wrong questions:** "where is the door" heard as "where is the war"; "what objects are nearby" heard as "… what projector nearby", which started a search for a projector. Searches now start only from "where" questions.
+- **Latency:** scene frame-to-speech p50 4.95 s / p95 7.5 s (M3 final: 5.7 s / 6.8 s), with 640 px frames, at most 3 items and SAM checks capped at 1.5 s. Spark p50 3.2 s / p95 5.1 s; its time follows its output (330–1,030 tokens, mostly reasoning), so the p95 tail comes from occasional long replies. Measured beforehand on stock photos: 640 px took a median 2.3 s against 3.2 s at 768 px; `prompt_cache_key` added nothing, because Meta already caches the instructions (1,009 of ~1,800 input tokens cached).
+
 ## 8. Walking routes (navigation milestone)
 
 Checked 2026-10-29 from the development Mac; details and sources in [research/routing.md](research/routing.md).
