@@ -5,6 +5,7 @@
  * `node --test` with fakes. The session hook wires in the real ones.
  */
 import type { Announcement, Announcer } from '../agent/announcer.ts';
+import type { Detection } from '../agent/types.ts';
 import { phrases, type ErrorKind } from '../agent/phrases.ts';
 import type { ApiError } from '../api/detect-response.ts';
 import type { SceneRequest, SceneResult } from '../api/scene-response.ts';
@@ -21,8 +22,9 @@ import {
   withRetryAfter,
   type FailureState,
 } from '../session/retry-policy.ts';
+import type { HoldReading } from '../perception/orientation.ts';
 import type { FrameCapture } from '../session/search-controller.ts';
-import { INITIAL_POLICY, decide, type DecisionNote, type PolicyState } from './attention-policy.ts';
+import { INITIAL_POLICY, decide, isHazard, mention, walkingRelevant, type DecisionNote, type PolicyState } from './attention-policy.ts';
 import { EMPTY_MEMORY, contextFor, expire, markSpoken, mergeReply, type MemoryItem, type SceneMemory } from './scene-memory.ts';
 import { scenePhrases } from './scene-phrases.ts';
 import { VERBOSITY_STEPS, type Verbosity } from './types.ts';
@@ -33,6 +35,8 @@ export const SCENE_LOOP = {
   /** After `slowAfterQuiet` replies in a row with no change, the interval stretches to this. */
   slowIntervalMs: 8000,
   slowAfterQuiet: 2,
+  /** How many of Spark's items SAM checks on each frame (each check is one SAM call). */
+  ground: 3,
   /** Every wait yields at least this long, so the loop can never spin without a pause. */
   minWaitMs: 50,
   /** A capture (incl. resize) that takes longer than this fails the cycle. */
@@ -52,6 +56,8 @@ export type SceneDeps = {
   scene(request: SceneRequest, signal: AbortSignal): Promise<SceneResult>;
   /** Shared with the search, so only one line plays at a time. */
   announcer: Announcer;
+  /** How the phone is held right now (sampled when a frame is taken); null without a sensor. */
+  hold?(): HoldReading | null;
   /** Monotonic ms (performance.now in the app). */
   now(): number;
   newSessionId(): string;
@@ -63,6 +69,9 @@ export type SceneDeps = {
   retryDelay?: (failures: number) => number;
 };
 
+/** One box on the preview: a SAM-confirmed item from the latest reply. */
+export type SceneBox = { key: string; label: string; detection: Detection; obstacle: boolean };
+
 export type SceneSnapshot = {
   started: boolean;
   running: boolean;
@@ -71,6 +80,10 @@ export type SceneSnapshot = {
   /** Latest summary that passed the backend filter (shown on screen, not necessarily spoken). */
   summary: string | null;
   items: readonly MemoryItem[];
+  /** SAM boxes of the latest reply, for the preview overlay; empty while paused. */
+  boxes: readonly SceneBox[];
+  /** How the phone was held for the latest frame (sets the wording of directions). */
+  hold: HoldReading | null;
   calls: number;
   lastRttMs: number | null;
   p50RttMs: number | null;
@@ -112,6 +125,12 @@ type ReplyMetrics = {
 
 type CycleOutcome = { ok: true } | { ok: false; retryAfterMs: number | null };
 
+/**
+ * Failures the scene loop says at once. Not "slow": one Spark call over its timeout is followed
+ * by the next look a moment later, so it is only said when it happens twice in a row (round 4).
+ */
+const SCENE_SAY_AT_ONCE: ReadonlySet<ErrorKind> = new Set<ErrorKind>(['unauthorized', 'notConfigured', 'cantAnalyze', 'budget']);
+
 export function createSceneController(deps: SceneDeps): SceneController {
   const options: SceneLoopOptions = { ...SCENE_LOOP, ...deps.loop };
   const retryDelay = deps.retryDelay ?? retryDelayMs;
@@ -125,6 +144,8 @@ export function createSceneController(deps: SceneDeps): SceneController {
   let memory: SceneMemory = EMPTY_MEMORY;
   let policy: PolicyState = INITIAL_POLICY;
   let lastSummary: string | null = null;
+  let boxes: SceneBox[] = [];
+  let lastHold: HoldReading | null = null;
   let loop: AbortController | null = null;
   let oneShot: AbortController | null = null;
   let wake: (() => void) | null = null;
@@ -161,6 +182,8 @@ export function createSceneController(deps: SceneDeps): SceneController {
       verbosity,
       summary: lastSummary,
       items: memory.items,
+      boxes,
+      hold: lastHold,
       calls,
       lastRttMs: last?.rttMs ?? null,
       p50RttMs: p50 == null ? null : round(p50),
@@ -255,6 +278,8 @@ export function createSceneController(deps: SceneDeps): SceneController {
   async function runCycle(signal: AbortSignal, detailed: boolean): Promise<CycleOutcome> {
     const frameId = nextFrameId++;
     const frameAt = deps.now();
+    const hold = deps.hold?.() ?? null;
+    lastHold = hold;
     inFlight = true;
     try {
       let frame: FrameCapture;
@@ -281,6 +306,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
             frame_id: frameId,
             context: contextFor(memory, sentAt),
             detailed,
+            ground: options.ground,
           },
           signal,
         );
@@ -300,10 +326,25 @@ export function createSceneController(deps: SceneDeps): SceneController {
       const describe = describePending;
       describePending = false;
       const merged = mergeReply(memory, data, receivedAt);
-      const decision = decide({ reply: data, merged, verbosity, state: policy, now: receivedAt, describe });
+      const decision = decide({
+        reply: data,
+        merged,
+        verbosity,
+        state: policy,
+        now: receivedAt,
+        describe,
+        frame: hold?.frame ?? 'camera',
+      });
       memory = markSpoken(merged.memory, decision.spokenKeys, receivedAt);
       policy = decision.state;
       if (data.summary) lastSummary = data.summary;
+      const byKey = new Map(memory.items.map((i) => [i.key, i]));
+      // Boxes only for walking-relevant things SAM found: no outlines around pictures or screens.
+      boxes = merged.reported.flatMap((item) => {
+        const remembered = byKey.get(item.key);
+        if (!remembered?.box || item.grounded !== true || !walkingRelevant(remembered)) return [];
+        return [{ key: item.key, label: item.label, detection: remembered.box, obstacle: isHazard(remembered) }];
+      });
       quietStreak = data.change === 'none' ? quietStreak + 1 : 0;
       notes = { ...notes, [decision.note]: (notes[decision.note] ?? 0) + 1 };
       if (decision.announcement) {
@@ -332,7 +373,12 @@ export function createSceneController(deps: SceneDeps): SceneController {
           processMs: frame.processMs,
           rttMs: round(receivedAt - sentAt),
           sparkMs: data.timings_ms?.spark ?? null,
+          samMs: data.timings_ms?.sam ?? null,
           totalMs: round(receivedAt - frameAt),
+          grounded: `${data.items.filter((i) => i.grounded === true).length}/${data.items.filter((i) => i.grounded != null).length}`,
+          // Reported but never said on HeyNavi's own initiative (not walking-relevant at this verbosity).
+          suppressed: merged.reported.filter((i) => mention(i, verbosity) == null).length,
+          hold: hold ? `${hold.frame}:${hold.reason}:${hold.downDeg}` : null,
           inTok: data.usage?.input_tokens ?? null,
           outTok: data.usage?.output_tokens ?? null,
           reasonTok: data.usage?.reasoning_tokens ?? null,
@@ -347,7 +393,13 @@ export function createSceneController(deps: SceneDeps): SceneController {
       );
       deps.devLog?.(
         `[heynavi-scene] #${frameId} ${data.change} summary=${JSON.stringify(data.summary)} items=` +
-          data.items.map((i) => `${i.label}x${i.count}(${i.kind},${i.position},${i.band},${i.importance},${i.status})`).join(' ') +
+          data.items
+            .map(
+              (i) =>
+                `${i.label}x${i.count}(${i.kind},${i.position},${i.band},${i.importance},${i.status},` +
+                `sam=${i.grounded == null ? '-' : i.grounded ? (i.detections[0]?.confidence?.toFixed(2) ?? 'y') : 'no'})`,
+            )
+            .join(' ') +
           ` -> ${decision.note}${decision.announcement ? ` ${JSON.stringify(decision.announcement.text)}` : ''}`,
       );
       if (calls % options.metricsEvery === 0) logSummary('periodic');
@@ -360,7 +412,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
 
   function fail(kind: ErrorKind, message: string, error: ApiError | null) {
     failureTotal++;
-    const result = recordFailure(failures, kind, deps.now());
+    const result = recordFailure(failures, kind, deps.now(), SCENE_SAY_AT_ONCE);
     failures = result.state;
     failing = kind;
     deps.log(`[heynavi] scene frame failed (${kind}): ${message}`);
@@ -452,6 +504,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       if (wasRunning) {
         stopLoop();
         describePending = false;
+        boxes = [];
         announcer.clearChannel('camera');
         logSummary('pause');
       }
@@ -520,6 +573,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       memory = EMPTY_MEMORY;
       policy = INITIAL_POLICY;
       lastSummary = null;
+      boxes = [];
       describePending = false;
       pendingLines.clear();
       metrics = [];

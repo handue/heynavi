@@ -20,7 +20,8 @@ _NUMBER = r"(?:\d+(?:[.,]\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|
 _RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("distance", re.compile(rf"\b{_NUMBER}[\s-]*{_UNITS}\b")),
     ("distance", re.compile(r"\b(?:meters?|metres?|feet|yards?|inches|centimeters?|centimetres?)\b")),
-    ("distance", re.compile(r"\b(?:arm'?s length|within reach|steps? (?:ahead|away|forward|in front))\b")),
+    # "a step ahead" names a step; counted steps ("two steps ahead") are caught by the first rule.
+    ("distance", re.compile(r"\b(?:arm'?s length|within reach|steps? away)\b")),
     ("safety", re.compile(r"\b(?:safe|safely|safety|unsafe|danger(?:ous)?|hazard(?:ous)?|harmless)\b")),
     (
         "safety",

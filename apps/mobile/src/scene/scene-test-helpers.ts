@@ -12,6 +12,8 @@ export function sceneItem(label: string, overrides: Partial<SceneItem> = {}): Sc
     importance: 'medium',
     ground: label,
     text: null,
+    grounded: true,
+    detections: [],
     ...overrides,
   };
 }

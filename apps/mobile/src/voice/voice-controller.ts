@@ -17,7 +17,7 @@
  */
 import type { ExpoSpeechRecognitionErrorCode } from 'expo-speech-recognition';
 
-import { analyze, isBargeIn, sameCommand, type Analysis, type Command } from './command-grammar.ts';
+import { acceptedOverSpeech, analyze, isBargeIn, sameCommand, type Analysis, type Command } from './command-grammar.ts';
 import { ECHO, bargeInHead, bargeInTail, gate, inSpeechAt } from './echo-gate.ts';
 import {
   VOICE,
@@ -335,8 +335,8 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
     const analysis = analyze(transcript);
     if (!overlapsSpeech()) return { analysis, echo: null };
     const references = echoReferences();
-    const wholeIsBargeIn = analysis.command != null && isBargeIn(analysis.command);
-    if (!wholeIsBargeIn) {
+    const wholeIsCommand = analysis.command != null && acceptedOverSpeech(analysis.command);
+    if (!wholeIsCommand) {
       const tail = bargeInTail(transcript, references);
       if (tail) return { analysis: tail.analysis, echo: 'after' };
     }

@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 
 import type { Position } from '../agent/types.ts';
 import { analyze, parse } from '../voice/command-grammar.ts';
-import { scenePhrases, where } from './scene-phrases.ts';
+import { direction, scenePhrases, where } from './scene-phrases.ts';
 import type { Band, Verbosity } from './types.ts';
 import { checkCameraText, clauses, unspeakableReason } from './wording.ts';
 
@@ -13,7 +13,7 @@ const POSITIONS: Position[] = ['left', 'center', 'right'];
 const BANDS: Band[] = ['lower', 'middle', 'upper'];
 const LEVELS: Verbosity[] = ['quiet', 'normal', 'detailed'];
 // Labels Spark may return, including ones that contain command words.
-const LABELS = ['chair', 'person', 'open door', 'stop sign', 'help desk', 'pause button', 'office chair', 'umbrella', 'stairs'];
+const LABELS = ['chair', 'person', 'open door', 'stop sign', 'help desk', 'pause button', 'office chair', 'umbrella', 'stairs', 'step', 'steps', 'box', 'clothing', 'curb'];
 
 function spokenLines(): string[] {
   const p = scenePhrases;
@@ -24,7 +24,12 @@ function spokenLines(): string[] {
       for (const band of BANDS) {
         for (const count of [1, 3]) {
           const item = { label, count, position, band };
-          lines.push(p.item(item), p.textUnreadable(item), p.text(item, 'Exit'));
+          for (const frame of ['forward', 'camera'] as const) {
+            lines.push(p.item(item, frame), p.obstacle(item, frame), p.textUnreadable(item, frame), p.text(item, 'Exit', frame));
+            for (const kind of ['possible_obstacle', 'level_change', 'person'] as const) {
+              lines.push(p.visible({ ...item, kind }, frame), p.uncertain({ ...item, kind }, frame));
+            }
+          }
         }
       }
     }
@@ -39,6 +44,21 @@ function uiStrings(): string[] {
 }
 
 describe('scene phrases', () => {
+  it('says directions relative to the user only for a forward-held phone', () => {
+    assert.equal(direction('left', 'lower', 'forward'), 'ahead on your left');
+    assert.equal(direction('center', 'upper', 'forward'), 'directly ahead');
+    assert.equal(direction('right', 'middle', 'camera'), 'on the right of the camera view');
+  });
+
+  it('says what is visible, plainly or hedged, like the walking examples', () => {
+    const f = 'forward' as const;
+    assert.equal(scenePhrases.visible({ label: 'bag', count: 1, position: 'center', band: 'lower', kind: 'possible_obstacle' }, f), 'A bag is visible on the floor ahead.');
+    assert.equal(scenePhrases.visible({ label: 'steps', count: 1, position: 'center', band: 'lower', kind: 'level_change' }, f), 'Steps are visible ahead.');
+    assert.equal(scenePhrases.visible({ label: 'person', count: 1, position: 'right', band: 'middle', kind: 'person' }, f), 'A person is visible ahead on your right.');
+    assert.equal(scenePhrases.uncertain({ label: 'curb', count: 1, position: 'left', band: 'lower', kind: 'level_change' }, f), 'There may be a curb ahead on your left.');
+    assert.equal(scenePhrases.visible({ label: 'clothing', count: 3, position: 'center', band: 'lower', kind: 'possible_obstacle' }, 'camera'), 'Some clothing is visible in the lower center of the camera view.');
+  });
+
   it('places things relative to the camera view', () => {
     assert.equal(where('left', 'middle'), 'on the left of the camera view');
     assert.equal(where('center', 'lower'), 'in the lower center of the camera view');
@@ -46,8 +66,12 @@ describe('scene phrases', () => {
   });
 
   it('counts and pluralizes', () => {
-    assert.equal(scenePhrases.item({ label: 'person', count: 3, position: 'left', band: 'middle' }), 'I see 3 people on the left of the camera view.');
-    assert.equal(scenePhrases.item({ label: 'umbrella', count: 1, position: 'right', band: 'lower' }), 'I see an umbrella in the lower right of the camera view.');
+    assert.equal(scenePhrases.item({ label: 'person', count: 3, position: 'left', band: 'middle' }), 'There are 3 people on the left of the camera view.');
+    assert.equal(scenePhrases.item({ label: 'umbrella', count: 1, position: 'right', band: 'lower' }), "There's an umbrella in the lower right of the camera view.");
+    assert.equal(scenePhrases.item({ label: 'step', count: 3, position: 'center', band: 'lower' }, 'forward'), 'There are steps directly ahead.');
+    assert.equal(scenePhrases.item({ label: 'stairs', count: 1, position: 'left', band: 'lower' }, 'forward'), 'There are stairs ahead on your left.');
+    assert.equal(scenePhrases.obstacle({ label: 'box', count: 1, position: 'center', band: 'lower' }, 'forward'), 'Possible obstacle: a box directly ahead.');
+    assert.equal(scenePhrases.item({ label: 'person', count: 1, position: 'right', band: 'middle' }, 'forward'), "There's a person ahead on your right.");
     assert.equal(scenePhrases.summary('A hallway'), 'A hallway.');
     assert.equal(scenePhrases.summary('A hallway!'), 'A hallway!');
   });

@@ -11,10 +11,12 @@ type Props = {
   p50RttMs: number | null;
   lastModelMs: number | null;
   frames: number;
+  /** A third line, e.g. how the phone is held. */
+  note?: string;
 };
 
 /** Small latency readout on the preview, for the demo and for tuning. */
-export function LatencyHud({ model, lastRttMs, p50RttMs, lastModelMs, frames }: Props) {
+export function LatencyHud({ model, lastRttMs, p50RttMs, lastModelMs, frames, note }: Props) {
   return (
     <View
       style={styles.hud}
@@ -26,6 +28,11 @@ export function LatencyHud({ model, lastRttMs, p50RttMs, lastModelMs, frames }: 
       <AppText variant="caption" tone="inverse">
         {model} {formatMs(lastModelMs)} · #{frames}
       </AppText>
+      {note ? (
+        <AppText variant="caption" tone="inverse">
+          {note}
+        </AppText>
+      ) : null}
     </View>
   );
 }

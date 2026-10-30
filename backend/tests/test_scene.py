@@ -14,6 +14,9 @@ from app.images import JPEG_DATA_URL_PREFIX, make_synthetic_jpeg
 from app.main import create_app
 from app.meta.scene import (
     SCENE_SCHEMA,
+    clean_label,
+    SceneItem,
+    grounding_order,
     ContextItem,
     SceneContext,
     SceneParseError,
@@ -263,11 +266,14 @@ def test_route_returns_the_validated_scene(client: TestClient, meta: respx.MockR
             "importance": "high",
             "ground": "chair",
             "text": None,
+            "grounded": None,
+            "detections": [],
         }
     ]
+    assert body["timings_ms"]["sam"] is None and body["usage"]["sam_images"] == 0
     assert body["usage"]["input_tokens"] == 1600 and body["usage"]["reasoning_tokens"] == 400
     assert body["usage"]["cost_usd"] == pytest.approx(1600 * 1.25e-6 + 500 * 4.25e-6, abs=1e-6)
-    assert set(body["timings_ms"]) == {"spark", "parse", "total"}
+    assert set(body["timings_ms"]) == {"spark", "parse", "sam", "total"}
 
     sent = json.loads(route.calls.last.request.content)
     assert sent["store"] is False
@@ -333,3 +339,162 @@ def test_spending_guard_stops_scene_and_detect_calls(meta: respx.MockRouter, tmp
         assert_error(c.post("/v1/detect", json=detect, headers=AUTH), 503, "budget_exhausted")
     assert route.call_count == 1
     assert json.loads((tmp_path / "usage.json").read_text())["spark_output_tokens"] == 2000
+
+
+# ---------- grounding (SAM checks Spark's items) ----------
+
+W, H = 768, 432
+
+
+def sam_body(text: str) -> dict[str, Any]:
+    return {
+        "id": "resp_sam",
+        "object": "response",
+        "status": "completed",
+        "store": False,
+        "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text, "annotations": []}]}],
+        "usage": {"images_processed": 1},
+    }
+
+
+def sam_box(x1: int, y1: int, x2: int, y2: int, c: float) -> str:
+    return f"<0f>0<|box;x1={x1};y1={y1};x2={x2};y2={y2};w={W};h={H};c={c}|>"
+
+
+def test_grounding_order_prefers_important_physical_items() -> None:
+    def si(label: str, **kw: Any) -> SceneItem:
+        base = dict(label=label, count=1, kind="object", position="center", band="middle", status="new",
+                    importance="medium", ground=label, text=None)
+        return SceneItem(**{**base, **kw})
+
+    items = [
+        si("lamp", importance="low"),
+        si("sign", kind="text", ground=None, importance="high"),
+        si("table"),
+        si("box", kind="possible_obstacle", importance="high"),
+        si("door", kind="landmark", importance="high"),
+        si("bag", status="gone", importance="high"),
+        si("haze", ground=None),
+    ]
+    # Walking-relevant kinds only: the table and the lamp are plain objects, the sign is text.
+    assert grounding_order(items, 3) == [3, 4]
+    assert grounding_order(items, 0) == []
+    steps = si("steps", kind="level_change", importance="medium")
+    sign_post = si("sign post", kind="overhead", importance="high")
+    side_person = si("person", kind="person", importance="low")
+    assert grounding_order([steps, sign_post, side_person], 4) == [1, 0]
+
+
+def test_route_checks_the_top_items_with_sam_on_the_same_frame(meta: respx.MockRouter) -> None:
+    spark = scene_json(
+        items=[
+            item(label="office chair", ground="chair", kind="possible_obstacle", importance="high"),
+            item(label="desk", ground="desk", kind="possible_obstacle", importance="medium", band="middle"),
+            item(label="unicorn", ground="unicorn", kind="possible_obstacle", importance="medium"),
+            item(label="lamp", ground="lamp", kind="object", importance="low"),
+        ]
+    )
+    sam_texts = {
+        "chair": sam_box(500, 250, 700, 430, 0.91) + "," + sam_box(10, 200, 100, 300, 0.45),
+        "desk": sam_box(0, 100, 200, 300, 0.42),
+        "unicorn": "",
+    }
+    seen: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["model"] == "sam-3.1":
+            assert payload["store"] is False
+            concept = payload["input"][0]["content"][0]["text"]
+            seen.append(concept)
+            assert payload["input"][0]["content"][1]["image_url"] == JPEG_DATA_URL_PREFIX + JPEG_B64
+            return httpx.Response(200, json=sam_body(sam_texts[concept]))
+        return httpx.Response(200, json=spark_body(spark))
+
+    meta.post("/responses").mock(side_effect=respond)
+    with app_client() as c:
+        body = c.post("/v1/scene", json=scene_body(ground=3), headers=AUTH).json()
+    assert sorted(seen) == ["chair", "desk", "unicorn"]
+    by_label = {i["label"]: i for i in body["items"]}
+    chair = by_label["office chair"]
+    assert chair["grounded"] is True
+    assert [d["position"] for d in chair["detections"]] == ["right", "left"]
+    assert chair["detections"][0]["confidence"] == 0.91
+    assert by_label["desk"]["grounded"] is False  # seen, but below 0.5
+    assert len(by_label["desk"]["detections"]) == 1
+    assert by_label["unicorn"]["grounded"] is False and by_label["unicorn"]["detections"] == []
+    assert by_label["lamp"]["grounded"] is None  # not walking-relevant: never sent to SAM
+    assert body["usage"]["sam_images"] == 3
+    assert body["usage"]["cost_usd"] == pytest.approx(1600 * 1.25e-6 + 500 * 4.25e-6 + 3 * 0.0025, abs=1e-6)
+    assert body["timings_ms"]["sam"] is not None
+
+
+def test_a_failed_sam_check_leaves_the_item_unchecked(meta: respx.MockRouter) -> None:
+    spark = scene_json(items=[item(label="chair", ground="chair"), item(label="box", ground="box", importance="medium")])
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["model"] == "sam-3.1":
+            if payload["input"][0]["content"][0]["text"] == "chair":
+                return httpx.Response(503, json={"error": {"message": "busy", "type": "server_error"}})
+            return httpx.Response(200, json=sam_body(sam_box(300, 300, 400, 420, 0.8)))
+        return httpx.Response(200, json=spark_body(spark))
+
+    meta.post("/responses").mock(side_effect=respond)
+    with app_client() as c:
+        response = c.post("/v1/scene", json=scene_body(ground=2), headers=AUTH)
+    assert response.status_code == 200
+    by_label = {i["label"]: i for i in response.json()["items"]}
+    assert by_label["chair"]["grounded"] is None
+    assert by_label["box"]["grounded"] is True
+
+
+def test_items_sharing_a_concept_share_one_sam_call(meta: respx.MockRouter) -> None:
+    spark = scene_json(items=[item(label="office chair", ground="chair"), item(label="side chair", ground="chair", importance="medium")])
+    calls: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["model"] == "sam-3.1":
+            calls.append(payload["input"][0]["content"][0]["text"])
+            return httpx.Response(200, json=sam_body(sam_box(10, 10, 200, 200, 0.9)))
+        return httpx.Response(200, json=spark_body(spark))
+
+    meta.post("/responses").mock(side_effect=respond)
+    with app_client() as c:
+        body = c.post("/v1/scene", json=scene_body(ground=4), headers=AUTH).json()
+    assert calls == ["chair"]
+    assert all(i["grounded"] for i in body["items"])
+    assert body["usage"]["sam_images"] == 1
+
+
+def test_ground_is_bounded(client: TestClient, meta: respx.MockRouter) -> None:
+    assert_error(client.post("/v1/scene", json=scene_body(ground=5), headers=AUTH), 422, "invalid_request")
+
+
+# ---------- walking relevance (M3, after round 3) ----------
+
+
+def test_prompt_asks_for_walking_relevance_not_interesting_objects() -> None:
+    text = build_scene_request("data:x", SceneContext(), model="m", reasoning_effort="minimal", max_output_tokens=9)[
+        "input"
+    ][0]["content"][0]["text"]
+    for phrase in ("could get in the way", "changes in floor level", "low-hanging", "pictures and wall decorations",
+                   "things standing on desks", "not from a fixed", "never screens, pictures or decorations"):
+        assert phrase in text, phrase
+    assert set(SCENE_SCHEMA["properties"]["items"]["items"]["properties"]["kind"]["enum"]) >= {"level_change", "overhead"}
+
+
+def test_labels_lose_their_place() -> None:
+    assert clean_label("Clothing on floor") == "clothing"
+    assert clean_label("bag  next to door") == "bag"
+    assert clean_label("on ramp") == "on ramp"  # a leading word is kept
+    parsed = parse_scene_output(scene_json(items=[item(label="clothing on floor", count=3)]))
+    assert parsed.items[0].label == "clothing"
+
+
+def test_new_walking_kinds_parse() -> None:
+    parsed = parse_scene_output(
+        scene_json(items=[item(label="steps", kind="level_change"), item(label="branch", kind="overhead", band="upper")])
+    )
+    assert [i.kind for i in parsed.items] == ["level_change", "overhead"]

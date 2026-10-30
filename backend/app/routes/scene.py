@@ -1,13 +1,17 @@
 """POST /v1/scene: one camera frame plus the app's short-term scene memory in, Muse Spark's
-validated scene reading out (ARCHITECTURE 4).
+validated scene reading out (ARCHITECTURE 4), with SAM 3.1 boxes for the objects Spark picked
+(ARCHITECTURE 5.2).
 
 The app's scene loop calls this every 4–8 s with one request in flight, so each call makes
-exactly one Meta attempt bounded by SCENE_TIMEOUT_SECONDS. Nothing here is spoken directly:
-the app's attention policy decides what the user hears.
+exactly one Spark attempt bounded by SCENE_TIMEOUT_SECONDS, then at most `ground` SAM attempts
+on the same frame, in parallel, each bounded by SAM_TIMEOUT_SECONDS. A failed SAM check leaves
+that item unchecked instead of failing the reply. Nothing here is spoken directly: the app's
+attention policy decides what the user hears.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Annotated
@@ -31,7 +35,7 @@ from app.images import (
     decode_base64_jpeg,
 )
 from app.meta.client import MetaAPIError, MetaClient
-from app.meta.sam import extract_output_text
+from app.meta.sam import SamDetection, build_sam_request, extract_output_text, parse_sam_output
 from app.meta.scene import (
     Band,
     Change,
@@ -43,10 +47,12 @@ from app.meta.scene import (
     SceneParseError,
     Status,
     build_scene_request,
+    grounding_order,
     parse_scene_output,
 )
 from app.meta.spark import extract_usage
 from app.pricing import estimate_cost
+from app.routes.detect import Detection, best_first, to_detection
 from app.routes.upstream import budget_exhausted_error, call_once, to_api_error
 from app.settings import Settings
 
@@ -55,6 +61,11 @@ log = logging.getLogger("heynavi.scene")
 ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 CONTEXT_LABEL_PATTERN = r"^[a-z][a-z -]{0,63}$"
 WHAT = "the scene model"
+# A SAM box below this confidence is not shown; an item counts as confirmed at GROUNDED_CONFIDENCE.
+MIN_BOX_CONFIDENCE = 0.40
+GROUNDED_CONFIDENCE = 0.50
+MAX_BOXES_PER_ITEM = 3
+MAX_GROUND = 4
 
 router = APIRouter(prefix="/v1", route_class=TokenFirstRoute)
 
@@ -79,6 +90,8 @@ class SceneRequest(BaseModel):
     context: SceneContextIn = Field(default_factory=SceneContextIn)
     # The user asked "what's around me": a fuller summary and a few more items.
     detailed: bool = False
+    # How many of Spark's items SAM should locate and check on the same frame (0 = none).
+    ground: int = Field(default=0, ge=0, le=MAX_GROUND, strict=True)
 
 
 class SceneItemOut(BaseModel):
@@ -91,11 +104,17 @@ class SceneItemOut(BaseModel):
     importance: Importance
     ground: str | None
     text: str | None
+    # None: SAM did not check it. True: SAM found it (confidence >= 0.5). False: not found.
+    grounded: bool | None = None
+    # SAM's boxes for `ground` on this frame, best first (empty when unchecked or not found).
+    detections: list[Detection] = Field(default_factory=list)
 
 
 class SceneTimings(BaseModel):
     spark: float
     parse: float
+    # Slowest of the parallel SAM checks; None when SAM was not called.
+    sam: float | None = None
     total: float
 
 
@@ -103,6 +122,7 @@ class SceneUsage(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     reasoning_tokens: int | None
+    sam_images: int = 0
     cost_usd: float
 
 
@@ -178,31 +198,77 @@ async def scene(
         raise ApiError(502, "upstream_error", f"{WHAT} returned an unusable answer") from None
     parse_ms = _ms_since(parse_started)
 
+    items = [SceneItemOut(**vars(item)) for item in parsed.items]
+    sam_ms: float | None = None
+    sam_images = 0
+    order = grounding_order(parsed.items, body.ground)
+    if order and not usage.exhausted():
+        image_url = JPEG_DATA_URL_PREFIX + body.image_b64
+        concepts = list(dict.fromkeys(parsed.items[i].ground for i in order if parsed.items[i].ground))
+        sam_started = time.perf_counter()
+        results = await asyncio.gather(
+            *(_locate(client, settings, usage, image_url, concept) for concept in concepts)
+        )
+        sam_ms = _ms_since(sam_started)
+        sam_images = len(concepts)
+        found = dict(zip(concepts, results, strict=True))
+        for i in order:
+            boxes = found.get(parsed.items[i].ground or "")
+            if boxes is None:
+                continue  # the SAM call failed: left unchecked
+            shown = [b for b in boxes if b.confidence is not None and b.confidence >= MIN_BOX_CONFIDENCE]
+            items[i].detections = [to_detection(b) for b in shown[:MAX_BOXES_PER_ITEM]]
+            items[i].grounded = bool(shown) and (shown[0].confidence or 0) >= GROUNDED_CONFIDENCE
+
     total_ms = _ms_since(started)
-    cost = estimate_cost(0, tokens["input_tokens"] or 0, tokens["output_tokens"] or 0)
+    cost = estimate_cost(sam_images, tokens["input_tokens"] or 0, tokens["output_tokens"] or 0)
     # Counts and timings only: the summary and labels describe the user's surroundings.
     log.info(
         "scene session=%s frame=%d spark=%.0f ms change=%s items=%d filtered=%d "
-        "tokens in=%s out=%s reasoning=%s total=%.0f ms",
+        "tokens in=%s out=%s reasoning=%s sam=%s grounded=%d/%d total=%.0f ms",
         body.session_id, body.frame_id, spark_ms, parsed.change, len(parsed.items),
         len(parsed.filtered), tokens["input_tokens"], tokens["output_tokens"],
-        tokens["reasoning_tokens"], total_ms,
+        tokens["reasoning_tokens"], "-" if sam_ms is None else f"{sam_ms:.0f} ms",
+        sum(1 for item in items if item.grounded), len(order), total_ms,
     )
     return SceneResponse(
         session_id=body.session_id,
         frame_id=body.frame_id,
         summary=parsed.summary,
         change=parsed.change,
-        items=[SceneItemOut(**vars(item)) for item in parsed.items],
+        items=items,
         filtered=parsed.filtered,
-        timings_ms=SceneTimings(spark=round(spark_ms, 1), parse=round(parse_ms, 1), total=round(total_ms, 1)),
+        timings_ms=SceneTimings(
+            spark=round(spark_ms, 1),
+            parse=round(parse_ms, 1),
+            sam=None if sam_ms is None else round(sam_ms, 1),
+            total=round(total_ms, 1),
+        ),
         usage=SceneUsage(
             input_tokens=tokens["input_tokens"],
             output_tokens=tokens["output_tokens"],
             reasoning_tokens=tokens["reasoning_tokens"],
+            sam_images=sam_images,
             cost_usd=round(cost, 6),
         ),
     )
+
+
+async def _locate(
+    client: MetaClient, settings: Settings, usage: UsageMeter, image_url: str, concept: str
+) -> list[SamDetection] | None:
+    """SAM boxes for one concept on the scene frame, best first; None when the call failed."""
+    payload = build_sam_request(concept, image_url, model=settings.sam_model)
+    try:
+        response = await call_once(client, payload, settings.sam_timeout_seconds)
+        client.ensure_completed(response)
+    except MetaAPIError as exc:
+        if exc.status is not None or exc.code == "timeout":
+            usage.add(sam_images=1)  # it may still be billed
+        log.warning("scene grounding failed: meta status=%s code=%s", exc.status, exc.code)
+        return None
+    usage.add(sam_images=1)
+    return sorted(parse_sam_output(extract_output_text(response)), key=best_first)
 
 
 def _ms_since(started: float) -> float:

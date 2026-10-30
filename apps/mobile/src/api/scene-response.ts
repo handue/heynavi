@@ -1,5 +1,5 @@
 /** POST /v1/scene wire types and response parsing. Pure, so it runs under `node --test`. */
-import type { Position } from '../agent/types.ts';
+import type { Detection, Position } from '../agent/types.ts';
 import type {
   Band,
   Importance,
@@ -9,7 +9,7 @@ import type {
   SceneItem,
   SceneKind,
 } from '../scene/types.ts';
-import type { ApiError } from './detect-response.ts';
+import { parseDetection, type ApiError } from './detect-response.ts';
 
 export type SceneRequest = {
   /** Base64 JPEG bytes, no "data:" prefix. */
@@ -19,6 +19,8 @@ export type SceneRequest = {
   context: SceneContext;
   /** The user asked "what's around me". */
   detailed: boolean;
+  /** How many of Spark's items SAM should locate and check on the same frame (0–4). */
+  ground: number;
 };
 
 export type SceneResponse = {
@@ -29,18 +31,27 @@ export type SceneResponse = {
   items: SceneItem[];
   /** Why the backend dropped sentences or labels (reasons only). */
   filtered: string[];
-  timings_ms: { spark: number; parse: number; total: number } | null;
+  timings_ms: { spark: number; parse: number; sam: number | null; total: number } | null;
   usage: {
     input_tokens: number | null;
     output_tokens: number | null;
     reasoning_tokens: number | null;
+    sam_images: number;
     cost_usd: number;
   } | null;
 };
 
 export type SceneResult = { ok: true; data: SceneResponse; rttMs: number } | { ok: false; error: ApiError };
 
-const KINDS: ReadonlySet<string> = new Set<SceneKind>(['object', 'possible_obstacle', 'person', 'text', 'landmark']);
+const KINDS: ReadonlySet<string> = new Set<SceneKind>([
+  'object',
+  'possible_obstacle',
+  'level_change',
+  'overhead',
+  'person',
+  'text',
+  'landmark',
+]);
 const POSITIONS: ReadonlySet<string> = new Set<Position>(['left', 'center', 'right']);
 const BANDS: ReadonlySet<string> = new Set<Band>(['lower', 'middle', 'upper']);
 const STATUSES: ReadonlySet<string> = new Set<ItemStatus>(['new', 'still', 'moved', 'gone']);
@@ -59,7 +70,7 @@ const isIn = (set: ReadonlySet<string>, v: unknown): v is string => typeof v ===
 
 export function parseSceneItem(value: unknown): SceneItem | null {
   if (!isObject(value)) return null;
-  const { label, count, kind, position, band, status, importance, ground, text } = value;
+  const { label, count, kind, position, band, status, importance, ground, text, grounded, detections } = value;
   if (typeof label !== 'string' || !LABEL_RE.test(label)) return null;
   if (!Number.isInteger(count) || (count as number) < 1) return null;
   if (!isIn(KINDS, kind) || !isIn(POSITIONS, position) || !isIn(BANDS, band)) return null;
@@ -75,6 +86,10 @@ export function parseSceneItem(value: unknown): SceneItem | null {
     importance: importance as Importance,
     ground: groundText && LABEL_RE.test(groundText) ? groundText : null,
     text: kind === 'text' ? stringOrNull(text) : null,
+    grounded: typeof grounded === 'boolean' ? grounded : null,
+    detections: Array.isArray(detections)
+      ? detections.map(parseDetection).filter((d): d is Detection => d != null)
+      : [],
   };
 }
 
@@ -88,7 +103,12 @@ export function parseSceneResponse(body: unknown): SceneResponse | null {
 
   const timings =
     isObject(timings_ms) && isNumber(timings_ms.spark) && isNumber(timings_ms.parse) && isNumber(timings_ms.total)
-      ? { spark: timings_ms.spark, parse: timings_ms.parse, total: timings_ms.total }
+      ? {
+          spark: timings_ms.spark,
+          parse: timings_ms.parse,
+          sam: isNumber(timings_ms.sam) ? timings_ms.sam : null,
+          total: timings_ms.total,
+        }
       : null;
   const parsedUsage =
     isObject(usage) && isNumber(usage.cost_usd)
@@ -96,6 +116,7 @@ export function parseSceneResponse(body: unknown): SceneResponse | null {
           input_tokens: intOrNull(usage.input_tokens),
           output_tokens: intOrNull(usage.output_tokens),
           reasoning_tokens: intOrNull(usage.reasoning_tokens),
+          sam_images: intOrNull(usage.sam_images) ?? 0,
           cost_usd: usage.cost_usd,
         }
       : null;

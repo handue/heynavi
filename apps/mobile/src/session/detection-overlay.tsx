@@ -5,31 +5,37 @@ import { CONFIRM, meets } from '@/agent/confirm';
 import type { Detection } from '@/agent/types';
 import { colors, radii, spacing } from '@/theme/tokens';
 
+/** One SAM box and what it is ("chair"). `obstacle` marks a confirmed possible obstacle. */
+export type OverlayBox = { key: string; label: string; detection: Detection; obstacle?: boolean };
+
 type Props = {
-  detections: readonly Detection[];
-  label: string;
+  boxes: readonly OverlayBox[];
   /** Preview size in points. Captures are not cropped (9:16 both), so boxes map 1:1. */
   width: number;
   height: number;
 };
 
-/** SAM boxes on top of the preview. Visual only: hidden from VoiceOver, never touchable. */
-export function DetectionOverlay({ detections, label, width, height }: Props) {
+/**
+ * SAM boxes on top of the preview: the search target while searching, and every object SAM
+ * confirmed while observing. For debugging and the demo; voice stays the interface. Visual
+ * only: hidden from VoiceOver, never touchable.
+ */
+export function DetectionOverlay({ boxes, width, height }: Props) {
   if (width === 0 || height === 0) return null;
   return (
     <View
       style={styles.layer}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants">
-      {detections.map((d, i) => {
+      {boxes.map(({ key, label, detection: d, obstacle }) => {
         const [x1, y1, x2, y2] = d.box;
         const candidate = meets(d, CONFIRM.tauDetect);
         return (
           <View
-            key={i}
+            key={key}
             style={[
               styles.box,
-              candidate ? styles.candidate : styles.weak,
+              candidate ? (obstacle ? styles.obstacle : styles.candidate) : styles.weak,
               {
                 left: x1 * width,
                 top: y1 * height,
@@ -37,7 +43,7 @@ export function DetectionOverlay({ detections, label, width, height }: Props) {
                 height: Math.max(0, y2 - y1) * height,
               },
             ]}>
-            <View style={[styles.tag, candidate ? styles.tagCandidate : styles.tagWeak]}>
+            <View style={[styles.tag, candidate ? (obstacle ? styles.tagObstacle : styles.tagCandidate) : styles.tagWeak]}>
               <AppText variant="caption" tone="inverse" numberOfLines={1}>
                 {label} {d.confidence == null ? '–' : d.confidence.toFixed(2)}
               </AppText>
@@ -62,6 +68,10 @@ const styles = StyleSheet.create({
   candidate: {
     borderColor: colors.primary,
   },
+  obstacle: {
+    borderColor: colors.primary,
+    borderWidth: 5,
+  },
   weak: {
     borderColor: colors.white,
     borderStyle: 'dashed',
@@ -76,6 +86,9 @@ const styles = StyleSheet.create({
   },
   tagCandidate: {
     backgroundColor: colors.primary,
+  },
+  tagObstacle: {
+    backgroundColor: colors.danger,
   },
   tagWeak: {
     backgroundColor: colors.scrim,

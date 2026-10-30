@@ -10,6 +10,7 @@ import { isActive } from '@/agent/search-machine';
 import { describeScene, detect } from '@/api/client';
 import { playHaptic } from '@/feedback/haptics';
 import { SCENE_CAPTURE, SESSION_CAPTURE, captureFrame, type CaptureOptions } from '@/perception/capture';
+import { createOrientationSampler, type OrientationSampler } from '@/perception/orientation-sampler';
 import { createSceneController, type SceneController } from '@/scene/scene-controller';
 import { scenePhrases } from '@/scene/scene-phrases';
 import { createSearchController, type FrameCapture, type SearchController } from '@/session/search-controller';
@@ -35,6 +36,7 @@ type Session = {
   stopLatency: StopLatencyMeter;
   /** A spoken reply to the user (priority 0). */
   reply(key: string, text: string): void;
+  orientation: OrientationSampler;
   /** The line HeyNavi most recently started speaking, shown as a caption. */
   caption: { subscribe(listener: () => void): () => void; get(): string | null };
   attachCamera: (camera: CameraView | null) => void;
@@ -73,6 +75,8 @@ function createSession(onDetach: () => void): Session {
         }
       : undefined,
   });
+  // How the phone is held decides between "ahead on your left" and "on the left of the camera view".
+  const orientation = createOrientationSampler();
   const capture =
     (options: CaptureOptions) =>
     (signal: AbortSignal): Promise<FrameCapture> => {
@@ -94,6 +98,7 @@ function createSession(onDetach: () => void): Session {
     capture: capture(SCENE_CAPTURE),
     scene: (request, signal) => describeScene(request, { signal }),
     announcer,
+    hold: () => orientation.current(),
     now,
     newSessionId: () => uuid.v4(),
     log: (line) => console.log(line),
@@ -112,6 +117,7 @@ function createSession(onDetach: () => void): Session {
     announcer,
     speech,
     stopLatency,
+    orientation,
     reply: (key, text) =>
       announcer.announce({
         key: `reply:${key}`,
@@ -149,7 +155,7 @@ function createSession(onDetach: () => void): Session {
  */
 export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) {
   const [cameraReady, setCameraReady] = useState(false);
-  const [{ controller, scene, announcer, speech, stopLatency, reply, caption, attachCamera }] = useState(() =>
+  const [{ controller, scene, announcer, speech, stopLatency, orientation, reply, caption, attachCamera }] = useState(() =>
     createSession(() => setCameraReady(false)),
   );
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -168,8 +174,9 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
     () => () => {
       controller.shutdown();
       scene.shutdown();
+      orientation.stop();
     },
-    [controller, scene],
+    [controller, scene, orientation],
   );
 
   // The primary experience: exploring starts by itself once the camera can deliver frames.

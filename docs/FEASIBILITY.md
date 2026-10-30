@@ -162,6 +162,24 @@ SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the l
 - **The mic also hears VoiceOver** reading the screen ("status ready", "page one of two"). None of it parsed as a command. The echo gate only knows HeyNavi's own speech, so spoken labels and hints must keep avoiding command words (a unit test checks them).
 - **Not verified yet:** auto-lock while idle on a release build (dev builds keep the screen awake), and recovery after a phone call or Siri interruption.
 
+**M3 on the iPhone 16e, 2026-10-30: automatic walking-obstacle awareness.** Dev build, home Wi-Fi, five rounds walking through an apartment. Numbers come from the app's `[heynavi-metrics]` / `[heynavi-scene]` Metro log.
+
+| Round | What changed before it | Result |
+|---|---|---|
+| 1 | Scene loop with Spark only | Spark p50 5.6 s / p95 8.2 s on real frames; 4 of 29 looks failed because the 1,200-token output cap cut the JSON off |
+| 2 | Cap 2,000, at most 4 items, shorter prompt | Spark p50 3.8 s / p95 5.7 s; frame-to-speech p50 4.6 s / p95 6.6 s; 0 failures; voice search found the chair in 4.3 s; "what's around me" and "quieter" said over speech were lost in the echo (fixed after) |
+| 3 | SAM checks Spark's top 3 objects; directions from the motion sensor; boxes for every confirmed object | SAM checks p50 ~0.75 s; hold read correctly on 14 of 14 frames (11 forward, 2 sideways, 1 too low); lines mentioned non-obstacles (blanket, refrigerator) and "3 clothing on floors" |
+| 4 | Walking relevance instead of interest; hedged lines for unlocalized hazards | Only walking-relevant items listed (mattress, shoes, boxes, bags, clothing, basket, doors, person, counter); no decor outlined; 2 of 12 looks timed out at 12 s and each was spoken; one line lost to a stale dedupe key |
+| 5 (final) | Timeouts spoken only twice in a row; spoken history kept 2 min; two obstacles in one sentence; summaries without decor | 14 looks, 0 failures; first description without the TV; "Possible obstacles: 2 baskets directly ahead, and 5 shoes directly ahead."; "what's around me" answered; frame-to-speech p50 5.7 s / p95 6.8 s; no repeated lines |
+
+- **Latency:** the p95 target (7 s) holds; the p50 target (5 s) is missed by about 0.7 s once SAM checks are included. Each line describes the view as it was about 6 s earlier, which is one more reason the wording stays descriptive.
+- **Cost:** about $0.005 per Spark look plus $0.0025 per SAM check; the whole of 2026-10-30 (five rounds and smoke tests) used about $0.65 of list price.
+- **Limitations seen or expected:**
+  - Spark decides what is walking-relevant from one photo. Something it does not list is never said, and small or flat things (cables, socks) are the likeliest misses. No round showed a planted flat object being announced.
+  - SAM confirmed most of what Spark named (confidence 0.5–0.97); a SAM miss is treated as unknown, not as absence, and produces a hedged line only for in-path hazards. That hedged path is unit-tested but did not come up on the phone.
+  - "Quieter" was not recognized in the final check (heard as "possible spider spider", probably). Commands said over HeyNavi's speech are unit-tested on round 2 transcripts but not yet confirmed live.
+  - Counts come from Spark ("9 shoes") and may be off.
+
 ## 8. Walking routes (navigation milestone)
 
 Checked 2026-10-29 from the development Mac; details and sources in [research/routing.md](research/routing.md).

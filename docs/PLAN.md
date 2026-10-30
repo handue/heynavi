@@ -40,18 +40,20 @@ Nothing is thrown away. Active Object Search becomes one optional capability ins
 
 ## 2. Proposed scope for Nov 4
 
+Revised 2026-10-30 after M3 round 2. The target experience: open HeyNavi → the camera observes automatically → the AI recognizes several relevant objects → HeyNavi says what is ahead and roughly where → the user asks questions naturally. Priorities, in order:
+
 **Must ship (demo-critical):**
 
-1. **Continuous Scene Understanding.** HeyNavi starts in explore mode and Muse Spark interprets a frame every ~4–8 s, using short-term scene memory.
-2. **Proactive voice guidance.** The app decides what to say: possible obstacles, new notable things, scene changes and visible text. It uses priorities, dedupe and rate caps, can always be interrupted, and keeps updates sparse by default.
-3. **Grounded checks with SAM 3.1.** Any object Spark picks is checked by SAM, and "possible obstacle" lines are spoken only after SAM confirms them.
-4. **Wording safety in code.** Camera lines come from templates, and a wording filter blocks distances, safety claims and directions.
-5. **What already works**: voice commands and Active Object Search.
+1. **Autonomous multi-object recognition.** Muse Spark reads a frame every ~4–8 s with short-term scene memory and proposes the relevant objects, features and possible obstacles; SAM 3.1 automatically locates and confirms up to 3 of them on the same frame. No object picker, no target required.
+2. **Approximate directional announcements.** "There's a chair ahead on your left." "Possible obstacle: a box directly ahead." User-relative only while the phone is held upright and level (motion sensor); otherwise relative to the camera view. Never distances, never which way is safe.
+3. **Automatic detection overlays.** Blue boxes for every SAM-confirmed object while observing, not only during a search.
+4. **Reliable, non-repetitive speech.** Only confirmed objects, obstacles first, at most two things per line, dedupe and rate caps from scene memory, interruptible at any time, wording filter and command audit on every line.
+5. **Real-device testing on the iPhone 16e** every round, measured from the Metro log.
+6. **What already works**: voice commands, "what's around me", and voice-started Active Object Search ("Find a chair", "Where is the entrance").
 
 **Should ship:**
 
-6. **Natural English questions** ("Hey Navi, what does that sign say?", "Where can I sit?"). Spark answers, or hands off to the existing search.
-7. **Verbosity and updates by voice**: "fewer updates", "updates off".
+7. **Natural English questions** ("Hey Navi, what does that sign say?", "Where can I sit?"). Spark answers from the frame and scene memory, or hands off to the existing search.
 8. **Outdoor readiness**: a release build, a backend reachable over cellular, and metrics uploaded to the backend.
 
 **Stretch (gated, see M5):**
@@ -61,7 +63,7 @@ Nothing is thrown away. Active Object Search becomes one optional capability ins
 **Not in this hackathon:**
 
 - turn-by-turn haptics;
-- tracking objects between Spark calls;
+- tracking objects between Spark calls, and precise distances or safe-route decisions of any kind (never);
 - Korean;
 - Muse Voice Transcribe;
 - the history screen;
@@ -77,8 +79,8 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 | **M0 Gates + scaffold** | Oct 29 | Repo, Expo SDK 58 app, FastAPI service, Meta client, SAM parser, bench | `pytest` passes; bench reports SAM and Spark latency | T | **Implemented & tested** |
 | **M1 Search loop (VS-1)** | Oct 29 | Capture queue, `/v1/detect`, confirmation, announcer, TTS, metrics | VS-1 on the iPhone | D, M | **Implemented & tested** (iPhone 16e): 6 of 6 finds; 40 s with no chair, 0 false "found"; stop 11–29 ms. See [FEASIBILITY.md §7](FEASIBILITY.md) |
 | **M2 Voice (VS-2)** | Oct 29 | On-device en-US commands, echo gate, barge-in, Magic Tap fix | VS-2 works on the iPhone; G6, G7 | D, T | **Implemented & tested** (iPhone 16e). Not verified: auto-lock on a release build, recovery after a call or Siri |
-| **M3 Continuous Scene Understanding** | Oct 30–31 | Day 1 starts by measuring the scene call's latency and token use on real phone frames. **Backend:** `POST /v1/scene` (Spark `minimal`, strict schema, wording filter, daily spending guard) and `POST /v1/metrics`. **App:** perception scheduler, scene memory, attention policy, scene templates, announcer channels and rate caps, explore mode as the session default, "what's around me", "fewer/more updates", "updates off/on", stop-in-silence pauses updates. Unit tests for memory, policy, filter, scheduler | On the iPhone, a scripted 5-minute indoor walk with planted objects. **Timing:** the first summary is spoken within 6 s of the start; a scene line starts p50 ≤ 5 s / p95 ≤ 7 s after its frame was captured. **Quality:** 0 repeats inside the dedupe window; 0 filtered phrases reach the speaker; every proactive line can be stopped (M2 latency). **Logged:** lines per minute and cost per minute | I, M, D, T | Planned |
-| **M4 Grounding + questions** | Nov 1 | SAM checks of Spark-picked concepts (same frame, then a fresh frame); "possible obstacle" only when both pass; Spark/SAM agreement metric. `POST /v1/ask` with frame and scene memory, Spark actions `find` / `describe` / `navigate`; "Hey Navi" plus the Ask button for questions; "where can I sit?" hands off to the existing search | On the iPhone: 0 "possible obstacle" lines without SAM confirmation across 2 walks; agreement rate measured on ≥ 30 checked items; 10 scripted questions answered (latency logged, tester judges correctness); 3 searches started from natural questions | M, T, D | Planned |
+| **M3 Autonomous scene awareness** | Oct 30–Nov 1 | **Part 1 (done):** `POST /v1/scene` (Spark `minimal`, strict schema, wording filter, daily spending guard), `POST /v1/metrics`; scene memory, attention policy, templates, announcer channels and rate caps; observing as the session default; camera-first screen with no object picker; "what's around me", "quieter", "more detail", "updates off/on". **Part 2 (walking obstacles):** Spark selects what is relevant to walking, not what is interesting; SAM 3.1 checks Spark's top 3 walking-relevant objects on the same frame inside `/v1/scene`; confirmed hazards first, things SAM could not localize said hedged ("There may be …"), decor never; positions from SAM's boxes; "Possible obstacle" only after SAM confirms; up to two things per line; user-relative directions only when the motion sensor shows the phone held forward; blue boxes for every confirmed object; commands said over HeyNavi's speech are picked out of the echo | On the iPhone, scripted indoor walks. **Timing:** first summary within 6 s of the start; a scene line starts p50 ≤ 5 s / p95 ≤ 7 s after its frame (SAM included). **Quality:** 0 repeats inside the dedupe window; 0 filtered phrases reach the speaker; 0 "possible obstacle" lines without SAM confirmation; boxes shown for confirmed objects; directions match the phone's hold; every line can be stopped. **Logged:** lines and cost per minute, Spark/SAM agreement | I, M, D, T | **Implemented & tested** on the iPhone 16e (5 rounds, 2026-10-30). Only walking-relevant things announced and outlined; hazards first; directions followed the phone's hold on every frame; 0 failed looks in the final check (2 of 12 timed out in round 4, now not spoken unless twice in a row); no repeats observed. Frame-to-speech p50 5.7 s / p95 6.8 s: **p50 misses the 5 s target by ~0.7 s**. Not verified on the phone: "quieter" (not recognized in the final check), commands said over HeyNavi's speech, the hedged "There may be …" line (unit-tested only) |
+| **M4 Questions + polish** | Nov 1–2 | `POST /v1/ask` with frame and scene memory, Spark actions `find` / `describe` / `navigate`; "Hey Navi" plus an Ask control for questions; "where can I sit?" hands off to the existing search. Tuning from the M3 walks (cadence, which objects SAM checks, wording); a fresh-frame re-check of obstacles if latency allows | On the iPhone: 10 scripted questions answered (latency logged, tester judges correctness); 3 searches started from natural questions; Spark/SAM agreement measured on ≥ 30 checked items | M, T, D | Planned |
 | **M5 Outdoor + navigation prototype (stretch)** | Nov 2–3 | **Step 1, kept even if navigation is cut:** release build, backend over cellular (hosted or tunnel), metrics upload, auto-lock check. **Step 2:** local Expo module for MapKit place search and walking routes, `expo-location` with GPS and heading, pure-TS route tracker (snap, next step, off-route re-route, arrival), GPS accuracy gate, "Route: …" lines with a chime, scene loop kept as context, "navigate to / where am I / what's next / stop navigation" | Step 1: the app works on cellular and outdoor runs leave logs. Step 2: one real walk of 300 m or more on the U10 route with a sighted companion. Every step is announced, no instruction is given while GPS accuracy is worse than 20 m, and camera lines stay separate from route lines | I, D, T | Planned |
 | **M6 Accessibility + onboarding** | Nov 2–3 (beside M5) | Voice onboarding with the safety lines, verbosity on screen and by voice, VoiceOver audit, high contrast, scene and route cards in the UI | Core tasks done with VoiceOver on and the screen covered | I, D | Planned |
 | **M7 Eval, deploy, demo** | Nov 3–4 AM | Results table from the M3–M5 logs, hosted backend for judging, README/docs, **rebuild the app**, record and cut the demo video | Results filled with real numbers; video cut | T, D | Planned |
@@ -86,7 +88,7 @@ Rubric key: I = Impact, M = Use of Meta AI tooling, D = Demo, T = Technical dept
 
 ### Gates (decided in advance, so we don't slip)
 
-- **End of Oct 31 ET:** if the M3 exit criteria have not passed, M4 shrinks to SAM checks for obstacles only and questions are cut. M5 step 2 is cut.
+- **End of Oct 31 ET:** if M3 part 2 has not passed on the iPhone, M4 shrinks to fixing it and questions are cut. M5 step 2 is cut.
 - **End of Nov 1 ET:** start M5 step 2 (navigation) only if M3 and M4 have passed. Otherwise, do M5 step 1 and spend the time on demo quality.
 - **End of Nov 2 ET:** if live route tracking isn't working outdoors, fall back to a **route preview**. HeyNavi speaks the real MapKit route summary and first instruction, plus the bearing from the compass, with no live tracking. If even that fails, the demo leaves navigation out and the submission lists it as planned.
 
@@ -117,14 +119,14 @@ Estimates, to be replaced by the per-call `usage` the backend logs.
 
 | Item | Estimate |
 |---|---|
-| Scene loop: one Spark call per ~4 s ≈ 900 calls per active hour × ~$0.0034 (G4 measured 563 input / 258 output tokens, $0.0018 per call; the scene reply is assumed about 2× larger) | about $3 per active hour |
-| SAM checks: 2 calls per checked item, ~0.5–1 item per scene reply ≈ 900–1,800 calls × $0.0025 | about $2–5 per active hour |
+| Scene loop: one Spark call per ~4–5 s ≈ 750–900 calls per active hour × ~$0.005 (measured on the iPhone: ~1,350 input / ~850 output tokens) | about $4 per active hour |
+| SAM checks: up to 3 calls per scene frame ≈ up to 2,700 calls per active hour × $0.0025 | up to about $7 per active hour |
 | Active Object Search: ~1 SAM call per second while searching | about $9 per searching hour |
 | Questions: ~300 × ~$0.004 | about $1 |
-| **Remaining plan:** ~8 h of scene testing and demo, plus ~2 h of searching | **about $60–85** |
+| **Remaining plan:** ~6 h of observing (tests and demo) at up to ~$11 per hour, plus ~2 h of searching | **about $70–90** |
 
 - **The backend's daily guard** (`DAILY_BUDGET_USD`, default $25) stops a runaway loop.
-- **Please check the balance (U9).** If less than about $90 remains, the scene interval starts at 6 s instead of 4 s.
+- **Please check the balance (U9).** If less than about $90 remains, the scene interval starts at 6 s instead of 4 s, and SAM checks 2 objects per frame instead of 3.
 
 ## 5. Three-minute demo (draft)
 
