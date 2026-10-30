@@ -1,10 +1,13 @@
 # HeyNavi — System Architecture
 
-Status: **Planned** (2026-10-29). No code exists yet. All numbers are design targets or initial values to tune, not measurements. Facts this design depends on are sourced in [FEASIBILITY.md](FEASIBILITY.md).
+Status (2026-10-29): M0–M2 are implemented and tested on the iPhone 16e (the search loop, voice commands, echo gate, Magic Tap). Everything else here is design. Numbers are design targets or initial values to tune unless marked as measured; measurements are in [FEASIBILITY.md](FEASIBILITY.md).
 
 ## 1. Design principles
 
 1. **Hold a goal, not a photo.** The unit of work is a user *objective* ("find a chair") that persists across many sampled frames until it is met, changed or cancelled. This is what separates HeyNavi from a "Simple Image Analyzer".
+   HeyNavi has two complementary capabilities on the same camera session:
+   - **Active Object Search** (signature feature, §4): goal-directed. The user names an object and the agent keeps that goal until it finds it or the user cancels.
+   - **Ambient Scene and Obstacle Awareness** (§4.4): proactive. Without a request, HeyNavi mentions a few meaningful scene changes and visually apparent possible obstacles. It is limited, configurable and never a safety guarantee.
 2. **Fast model on the main loop, slow model beside it.** The per-frame loop runs only on `sam-3.1`. `muse-spark-1.3` always reasons and is likely seconds to tens of seconds per call, so it plans, verifies, describes and reads off the main loop. It never gates a "found it" announcement.
 3. **Never go silent.** Every user request gets spoken feedback within about 300 ms (an earcon or "Looking…"). Every failure is spoken, with a next step.
 4. **Say only what the evidence supports.** Positions are given relative to the *camera view* (left / center / right). Distance is only described as "looks close" or "looks far", from box size. HeyNavi never claims a path is safe and never counts in steps or meters.
@@ -162,7 +165,19 @@ Switching modes never unmounts the camera.
 
 - **Describe** ("what's around me", "what's on my right"): Muse Spark is called with the frame, an optional focus region, and the prior summary as context, then streamed, so TTS starts on the first sentence. It is asked to stay concise and to mention only what is visible.
 - **Read** ("read that sign"): Muse Spark on a 1280 px frame. Repeated text is suppressed by hashing the normalized text. "Repeat", "summarize" and "translate" reuse the last text with a fast text-only call. If text is unreadable, the app says so and suggests moving closer.
-- **Watch** (automatic scene descriptions, P2/P4): every N seconds the backend computes a perceptual hash of the frame. A Spark description is requested only when the scene changed a lot *and* the rate limit allows. Descriptions too similar to the last one are dropped. Obstacle mentions ("A box is visible in the lower center of the camera view") use cautious wording and never imply safety.
+- **Ambient awareness** is the proactive mode; see §4.4.
+
+### 4.4 Ambient Scene and Obstacle Awareness (planned after M3)
+
+Status: **Planned.** A limited MVP gets its own plan once Active Object Search (M3) is reliable. These constraints are fixed now:
+
+- **Scope is limited on purpose.** A small set of announcements: a few common, visually apparent possible obstacles, and large scene changes. HeyNavi does not try to detect every obstacle, and it never claims collision avoidance, a safe path, or a precise distance.
+- **Real Meta inference.** Candidates: `sam-3.1` for a short fixed list of obstacle concepts in the lower part of the view, and `muse-spark-1.3` for a short description when the scene changed a lot (a perceptual-hash check decides when).
+- **Configurable.** The user can turn ambient announcements on or off and choose how often they come, by voice and in settings.
+- **Deduplicated and rate-limited** through the announcement engine (§5): the same thing is not announced twice within its window, and there is a cap per minute.
+- **Interruptible and subordinate.** Stop, quiet and Magic Tap cut it off like any other speech. Ambient speech never plays during an active search, and a user request always takes priority.
+- **Cautious wording, camera-relative.** "A box is visible in the lower center of the camera view", never "the path is clear" or "two steps ahead".
+- **Voice-first and English-only**, like the rest of the MVP.
 
 ## 5. Announcement engine
 
