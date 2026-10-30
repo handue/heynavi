@@ -25,7 +25,36 @@ export const colors = {
   disabledFill: '#E4E8EF',
   /** Overlay scrim on top of the camera preview. */
   scrim: 'rgba(28, 30, 33, 0.72)',
+  /** Grouped-list canvas behind cards (Settings). */
+  canvas: '#F2F5FA',
+  /** Hairline separators inside cards. */
+  hairline: 'rgba(28, 30, 33, 0.08)',
+
+  // Camera screen: dark chrome around a live image.
+  /** Behind and below the camera view. */
+  cameraChrome: '#0B0C0F',
+  /** Translucent dark glass for buttons and captions over the camera; white text on it is >= 7:1. */
+  glassDark: 'rgba(16, 18, 22, 0.55)',
+  /** Light frosted glass for the voice pill, status chip and answer cards over the camera. */
+  glassLight: 'rgba(255, 255, 255, 0.92)',
+  /** SAM boxes over the camera (wireframes 02–03): Meta blue, with a soft glow for dark scenes. */
+  detection: '#0668E1',
+  /** Possible obstacles over the camera (wireframe 04): bright red outlines and labels, never a filled "danger zone". */
+  hazard: '#FF3B30',
+  /** Hazard icons and titles on light cards (4.6:1 on white). */
+  hazardOnLight: '#D92D20',
+  /** Hazard text on dark glass (6.1:1 on glassDark over black). */
+  hazardOnDark: '#FF8A80',
 } as const;
+
+/** Shadows: soft and low, for cards on light surfaces. */
+export const shadows = {
+  card: { shadowColor: '#1C1E21', shadowOpacity: 0.07, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
+  raised: { shadowColor: '#0668E1', shadowOpacity: 0.28, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
+} as const;
+
+/** One stroke weight and a few sizes for every SF Symbol. */
+export const iconSize = { sm: 16, md: 20, lg: 24, xl: 30 } as const;
 
 export const spacing = {
   xs: 4,
@@ -40,6 +69,8 @@ export const radii = {
   card: 20,
   button: 16,
   chip: 12,
+  /** Fully rounded pills and circles. */
+  pill: 999,
 } as const;
 
 /** Minimum touch target in points (above Apple's 44 pt guideline, on purpose). */
@@ -54,6 +85,8 @@ export const type = {
   headline: { fontSize: 20, lineHeight: 26, fontWeight: '600' },
   body: { fontSize: 17, lineHeight: 24, fontWeight: '400' },
   bodyStrong: { fontSize: 17, lineHeight: 24, fontWeight: '600' },
+  /** Card titles and list rows. */
+  subhead: { fontSize: 16, lineHeight: 21, fontWeight: '600' },
   /** Secondary metadata. Still at least 15 pt. */
   caption: { fontSize: 15, lineHeight: 20, fontWeight: '400' },
   mono: { fontSize: 15, lineHeight: 21, fontFamily: monoFamily },

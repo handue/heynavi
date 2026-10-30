@@ -30,6 +30,23 @@ export function detect(request: DetectRequest, { signal }: { signal?: AbortSigna
   return postJson('/v1/detect', request, DETECT_TIMEOUT_MS, parseDetectResponse, signal);
 }
 
+/**
+ * POST /v1/metrics. True when the lines are done with: accepted, or refused for good (4xx). False
+ * on a network failure or 5xx, so the caller keeps them for the next try.
+ */
+export async function postMetrics(sessionId: string, lines: string[]): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiBaseUrl()}/v1/metrics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(appToken ? { 'X-HeyNavi-Token': appToken } : {}) },
+      body: JSON.stringify({ session_id: sessionId, lines }),
+    });
+    return response.status < 500;
+  } catch {
+    return false;
+  }
+}
+
 /** POST /v1/ask: a question about the current view. Same never-throws contract as detect(). */
 export function askQuestion(request: AskRequest, { signal }: { signal?: AbortSignal } = {}): Promise<AskResult> {
   return postJson('/v1/ask', request, SCENE_TIMEOUT_MS, parseAskResponse, signal);
@@ -66,7 +83,7 @@ async function postJson<T>(
         : null;
 
   try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
+    const response = await fetch(`${apiBaseUrl()}${path}`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',

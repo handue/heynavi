@@ -117,7 +117,7 @@ export function buildReport(parts: ReportParts) {
       isDevice: Device.isDevice,
     },
     config: {
-      apiBaseUrl,
+      apiBaseUrl: apiBaseUrl(),
       appTokenConfigured: appToken.length > 0,
     },
     camera: parts.camera ?? 'not run',

@@ -78,6 +78,16 @@ function visibleWhere(item: Describable & { kind?: SceneItem['kind'] }, frame: H
 }
 
 export const scenePhrases = {
+  /**
+   * Spoken once, on the first start (onboarding). The safety lines are part of it on purpose
+   * (ARCHITECTURE 12). Commands appear only inside longer clauses, and the session's microphone is
+   * not on yet anyway.
+   */
+  intro: () =>
+    'Welcome. I describe what your camera sees and mention things that could be in your way. ' +
+    "I don't replace your cane, guide dog, or mobility training, and I can't tell whether it's safe to walk or cross. " +
+    'Hold the phone upright, pointing ahead. You can ask me questions, like what is in front of me. ' +
+    'Next, allow the camera and the microphone.',
   /** Spoken when exploring starts; the first look follows a few seconds later. */
   exploreStart: () => "I'm looking around. I'll tell you what I notice.",
   /** "There's a chair ahead on your left." / "There are stairs directly ahead." */

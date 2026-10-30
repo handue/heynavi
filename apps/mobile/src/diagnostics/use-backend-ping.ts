@@ -40,12 +40,12 @@ export function useBackendPing() {
     setPending(false);
   }
 
-  return { url: `${apiBaseUrl}/health`, result, pending, ping };
+  return { url: `${apiBaseUrl()}/health`, result, pending, ping };
 }
 
 /** GET /health with a hard timeout. Never throws; failures come back in `error`. */
 async function pingHealth(controller: AbortController): Promise<BackendReport> {
-  const url = `${apiBaseUrl}/health`;
+  const url = `${apiBaseUrl()}/health`;
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const startedAt = performance.now();
   const at = () => new Date().toISOString();

@@ -41,7 +41,7 @@ export type LoopOptions = { [K in keyof typeof LOOP]: number };
 type CycleOutcome = { ok: true } | { ok: false; retryAfterMs: number | null };
 
 /** What the loop needs from a capture; perception/capture.ts returns more. */
-export type FrameCapture = { base64: string; captureMs: number; processMs: number };
+export type FrameCapture = { base64: string; captureMs: number; processMs: number; width?: number; height?: number };
 
 export type ControllerDeps = {
   capture(signal: AbortSignal): Promise<FrameCapture>;

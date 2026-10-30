@@ -1,35 +1,27 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import {
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-  type LayoutChangeEvent,
-  type ViewProps,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { useState, useSyncExternalStore } from 'react';
+import { Linking, Pressable, StyleSheet, View, type LayoutChangeEvent, type ViewProps } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/app-text';
 import { Button } from '@/components/button';
+import { Orb } from '@/components/orb';
 import { conceptLabel, phrases } from '@/agent/phrases';
 import { PICTURE_SIZE } from '@/perception/capture';
+import { scenePhrases } from '@/scene/scene-phrases';
+import { CaptionCard } from '@/session/caption-card';
+import { CENTER_SIZE, CONTROL_BAR_HEIGHT, ControlBar } from '@/session/control-bar';
 import { DetectionOverlay } from '@/session/detection-overlay';
 import { LatencyHud } from '@/session/latency-hud';
-import { MicStatus } from '@/session/mic-status';
-import { SessionStatus } from '@/session/session-status';
-import { StateStrip } from '@/session/state-strip';
+import { TOP_BAR_HEIGHT, TopBar, type ChipTone, type PillTone } from '@/session/top-bar';
 import { useCameraSession } from '@/session/use-camera-session';
-import { scenePhrases } from '@/scene/scene-phrases';
-import { colors, radii, spacing } from '@/theme/tokens';
+import { getSettings, subscribeSettings } from '@/settings/app-settings';
+import { colors, spacing } from '@/theme/tokens';
 
-/** Portrait 9:16, the same aspect as the 1280x720 capture, so nothing is cropped. */
-const PREVIEW_ASPECT = 9 / 16;
-
-/** The preview never gets less height than this, whatever the text size; the controls scroll. */
-const MIN_PREVIEW_HEIGHT = 240;
+/** Portrait 9:16, the same aspect as the 1280x720 capture, so nothing is cropped from what is sent. */
+const CAMERA_ASPECT = 9 / 16;
 
 /**
  * `onAccessibilityMagicTap` is missing from ViewProps. Fabric's native view only handles the
@@ -47,25 +39,31 @@ function magicTapProps(handler: () => void): ViewProps {
 }
 
 /**
- * Camera session (ARCHITECTURE 3.3), camera first: the preview, what HeyNavi is doing and what it
- * last said, the mic status, and two controls. HeyNavi starts observing once the camera is ready
- * and mentions what it notices. Everything else is by voice: "What's around me", "Find a chair",
- * "Where is the entrance" (no object picker). Magic Tap and a tap on the preview silence speech,
- * end a search, or pause and resume observing. The VoiceOver escape gesture ends a search and
- * goes back.
+ * Camera session (ARCHITECTURE 3.3, wireframes 02–04): the live view fills the screen, with
+ * HeyNavi's boxes, a top bar (close, voice status, settings), the line being spoken and round
+ * floating controls with the living HeyNavi symbol in the middle. HeyNavi starts observing once the
+ * camera is ready and mentions what could be in your way. Everything else is by voice: "What's
+ * around me", "Where is the door", "Find a chair". Magic Tap and a tap on the view silence speech,
+ * end a search, or pause and resume observing. The VoiceOver escape gesture ends a search and goes
+ * back.
  */
 export default function SessionScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [mountError, setMountError] = useState<string | null>(null);
-  const [area, setArea] = useState({ width: 0, height: 0 });
+  const [screen, setScreen] = useState({ width: 0, height: 0 });
+  const [captionHeight, setCaptionHeight] = useState(0);
+  const settings = useSyncExternalStore(subscribeSettings, getSettings);
   const {
     attachCamera,
     canSearch,
     onCameraReady,
     snapshot,
     sceneSnapshot,
+    boxTurn,
     lastSaid,
+    speaking,
     concept,
     searching,
     updatesHeld,
@@ -77,148 +75,196 @@ export default function SessionScreen() {
   } = useCameraSession({ cameraAllowed: permission?.granted === true });
   const ui = phrases('en-US').ui;
   const sceneUi = scenePhrases.ui;
-  const sessionState = sceneSnapshot.running ? 'observing' : sceneSnapshot.started ? 'paused' : 'starting';
+  const mic = ui.mic;
 
-  const preview = fitPreview(area.width, area.height);
+  const camera = coverScreen(screen.width, screen.height);
+  const listening = voice.micStatus === 'listening';
+  const toolbarTop = screen.height - insets.bottom - spacing.md - CONTROL_BAR_HEIGHT;
+  const bottomScrimHeight = insets.bottom + CONTROL_BAR_HEIGHT + 140;
+  const captionTop = toolbarTop - spacing.sm - captionHeight;
 
-  function onAreaLayout(event: LayoutChangeEvent) {
+  const thinking = sceneSnapshot.describing && !speaking;
+  const pill: { label: string; spoken: string; tone: PillTone } = !listening
+    ? {
+        label: voice.micLabel,
+        spoken: voice.micLabel,
+        tone: voice.micStatus === 'needs-permission' || voice.micStatus === 'stopped' ? 'alert' : 'off',
+      }
+    : speaking && lastSaid?.kind === 'obstacle'
+      ? { label: 'Caution ahead', spoken: 'Speaking, possible obstacle', tone: 'caution' }
+      : speaking
+        ? { label: 'HeyNavi is speaking…', spoken: 'Speaking', tone: 'speaking' }
+        : thinking
+          ? { label: 'HeyNavi is thinking…', spoken: 'Looking', tone: 'thinking' }
+          : { label: 'HeyNavi is listening…', spoken: 'Listening', tone: 'listening' };
+  const chip: { label: string; tone: ChipTone } = searching
+    ? { label: `${sceneUi.searching}: ${conceptLabel(concept)} · ${ui.status(snapshot.search.status)}`, tone: 'searching' }
+    : sceneSnapshot.running
+      ? { label: sceneUi.observing, tone: 'observing' }
+      : { label: sceneSnapshot.started ? sceneUi.paused : sceneUi.starting, tone: 'paused' };
+
+  const boxes = searching
+    ? snapshot.detections.map((detection, i) => ({ key: `search-${i}`, label: conceptLabel(concept), detection }))
+    : sceneSnapshot.boxes;
+
+  function close() {
+    stop();
+    router.back();
+  }
+
+  function onLayout(event: LayoutChangeEvent) {
     const { width, height } = event.nativeEvent.layout;
-    setArea({ width, height });
+    setScreen({ width, height });
   }
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.safeArea}>
-      {/* collapsable={false}: Fabric flattens a layout-only View, and then the escape gesture and
-          Magic Tap have no native view to reach. Magic Tap silences speech, ends a search, or
-          holds and restarts the scene updates. */}
-      <View
-        collapsable={false}
-        style={styles.root}
-        {...magicTapProps(() => tapAnywhere('magic-tap'))}
-        onAccessibilityEscape={() => {
-          stop();
-          router.back();
-        }}>
-        <View style={styles.previewArea} onLayout={onAreaLayout}>
-          {permission?.granted ? (
-            // Mounted once permission is granted, whatever the layout, and never moved: a stable
-            // native parent with CameraView as its first child (expo issue #50015). Overlays are
-            // absolutely positioned siblings rendered after it.
-            <View collapsable={false} style={[styles.preview, preview]}>
-              <CameraView
-                ref={attachCamera}
-                style={StyleSheet.absoluteFill}
-                facing="back"
-                mode="picture"
-                pictureSize={PICTURE_SIZE}
-                animateShutter={false}
-                onCameraReady={onCameraReady}
-                onMountError={(event) => setMountError(event.message)}
-                accessibilityLabel="Camera preview"
-              />
-              <DetectionOverlay
-                boxes={
-                  searching
-                    ? snapshot.detections.map((detection, i) => ({ key: `search-${i}`, label: conceptLabel(concept), detection }))
-                    : sceneSnapshot.boxes
-                }
-                width={preview.width}
-                height={preview.height}
-              />
-              {searching ? (
-                <LatencyHud
-                  model="SAM"
-                  lastRttMs={snapshot.lastRttMs}
-                  p50RttMs={snapshot.p50RttMs}
-                  lastModelMs={snapshot.lastSamMs}
-                  frames={snapshot.frames}
-                />
-              ) : (
-                <LatencyHud
-                  model="Spark"
-                  lastRttMs={sceneSnapshot.lastRttMs}
-                  p50RttMs={sceneSnapshot.p50RttMs}
-                  lastModelMs={sceneSnapshot.lastSparkMs}
-                  frames={sceneSnapshot.calls}
-                  note={sceneSnapshot.hold?.frame === 'forward' ? 'held forward' : 'camera view'}
-                />
-              )}
-              {/* Tap anywhere on the preview: same as Magic Tap. VoiceOver users have the buttons
-                  and Magic Tap, so this duplicate target stays out of the accessibility tree. */}
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={() => tapAnywhere('button')}
-                accessible={false}
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              />
-            </View>
-          ) : (
-            <PermissionPrompt
-              checking={permission == null}
-              canAskAgain={permission?.canAskAgain ?? true}
-              onRequest={requestPermission}
-            />
-          )}
+    // collapsable={false}: Fabric flattens a layout-only View, and then the escape gesture and
+    // Magic Tap have no native view to reach.
+    <View
+      collapsable={false}
+      style={styles.root}
+      onLayout={onLayout}
+      {...magicTapProps(() => tapAnywhere('magic-tap'))}
+      onAccessibilityEscape={close}>
+      <StatusBar style="light" />
+      {permission?.granted ? (
+        // Mounted once permission is granted and never moved: a stable native parent with
+        // CameraView as its first child (expo issue #50015). It keeps the capture's 9:16 shape and
+        // covers the screen, so on a tall phone a sliver of each side is off screen; what is sent
+        // to the models is still the whole frame. Overlays are siblings drawn after it.
+        <View collapsable={false} style={[styles.camera, camera]}>
+          <CameraView
+            ref={attachCamera}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            mode="picture"
+            pictureSize={PICTURE_SIZE}
+            animateShutter={false}
+            onCameraReady={onCameraReady}
+            onMountError={(event) => setMountError(event.message)}
+            accessibilityLabel="Camera view"
+          />
+          {/* Soft gradients behind the top bar and the controls, in the camera view's coordinates
+              (it can extend past the screen). Contrast for the white captions on bright scenes. */}
+          <View pointerEvents="none" style={[styles.topScrim, { top: -camera.top, height: insets.top + TOP_BAR_HEIGHT + spacing.xl }]} />
+          <View
+            pointerEvents="none"
+            style={[styles.bottomScrim, { top: screen.height - camera.top - bottomScrimHeight, height: bottomScrimHeight }]}
+          />
+          <DetectionOverlay
+            boxes={boxes}
+            width={camera.width}
+            height={camera.height}
+            safeTop={insets.top + TOP_BAR_HEIGHT + spacing.sm - camera.top}
+            safeBottom={captionTop - spacing.sm - camera.top}
+            visibleLeft={-camera.left}
+            visibleRight={-camera.left + screen.width}
+            showConfidence={settings.devOverlay}
+            turn={searching ? undefined : boxTurn}
+          />
         </View>
+      ) : (
+        <PermissionPrompt
+          checking={permission == null}
+          canAskAgain={permission?.canAskAgain ?? true}
+          onRequest={requestPermission}
+        />
+      )}
 
-        {/* At large text sizes the controls scroll instead of squeezing the preview. */}
-        <ScrollView style={styles.controlsScroll} contentContainerStyle={styles.controls}>
-          {mountError ? <AppText tone="danger">Camera failed to start: {mountError}</AppText> : null}
-          {searching ? (
-            <StateStrip
-              target={capitalize(conceptLabel(concept))}
-              status={snapshot.search.status}
-              statusLabel={ui.status(snapshot.search.status)}
-              window={snapshot.search.window}
-              failing={snapshot.failing}
-            />
+      {/* Tap anywhere on the view: same as Magic Tap. VoiceOver users have the buttons and Magic
+          Tap, so this duplicate target stays out of the accessibility tree. */}
+      {permission?.granted ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => tapAnywhere('button')}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+      ) : null}
+
+      {settings.devOverlay && permission?.granted ? (
+        <LatencyHud
+          model={searching ? 'SAM' : 'Spark'}
+          lastRttMs={searching ? snapshot.lastRttMs : sceneSnapshot.lastRttMs}
+          p50RttMs={searching ? snapshot.p50RttMs : sceneSnapshot.p50RttMs}
+          lastModelMs={searching ? snapshot.lastSamMs : sceneSnapshot.lastSparkMs}
+          frames={searching ? snapshot.frames : sceneSnapshot.calls}
+          note={searching ? undefined : sceneSnapshot.hold?.frame === 'forward' ? 'held forward' : 'camera view'}
+          style={[styles.hud, { top: insets.top + TOP_BAR_HEIGHT + spacing.md }]}
+        />
+      ) : null}
+
+      <TopBar onClose={close} onSettings={() => router.push('/settings')} pill={pill} chip={chip} />
+
+      {permission?.granted ? (
+        <View style={[styles.bottom, { bottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
+          {mountError ? (
+            <AppText tone="inverse" style={styles.error}>
+              Camera failed to start: {mountError}
+            </AppText>
           ) : null}
-          <SessionStatus state={searching ? null : sessionState} verbosity={sceneSnapshot.verbosity} lastSaid={lastSaid} />
-          <MicStatus
-            status={voice.micStatus}
-            label={voice.micLabel}
-            canAskAgain={voice.voiceState.canAskAgain}
-            onPress={voice.pressMic}
-          />
-          <Button
-            large
-            label={searching ? ui.stopButton : updatesHeld ? sceneUi.resumeButton : sceneUi.pauseButton}
-            accessibilityHint={
+          <View pointerEvents="none" onLayout={(e) => setCaptionHeight(e.nativeEvent.layout.height)}>
+            <CaptionCard caption={lastSaid} speaking={speaking} />
+          </View>
+          <ControlBar
+            left={
               searching
-                ? snapshot.search.status === 'PAUSED'
-                  ? ui.pausedHint
-                  : ui.stopHint
+                ? {
+                    icon: 'xmark',
+                    caption: 'End search',
+                    label: ui.stopButton,
+                    hint: snapshot.search.status === 'PAUSED' ? ui.pausedHint : ui.stopHint,
+                    onPress: pressPrimary,
+                  }
                 : updatesHeld
-                  ? sceneUi.resumeHint
-                  : sceneUi.pauseHint
+                  ? { icon: 'play.fill', caption: 'Resume', label: sceneUi.resumeButton, hint: sceneUi.resumeHint, disabled: !canSearch, onPress: pressPrimary }
+                  : { icon: 'pause.fill', caption: 'Pause', label: sceneUi.pauseButton, hint: sceneUi.pauseHint, disabled: !canSearch, onPress: pressPrimary }
             }
-            disabled={!searching && !canSearch}
-            onPress={pressPrimary}
+            center={{
+              caption: 'Describe',
+              label: sceneUi.describeButton,
+              hint: sceneUi.describeHint,
+              disabled: !canSearch,
+              onPress: describe,
+              content: <Orb size={CENTER_SIZE} mode={speaking ? 'speaking' : thinking ? 'thinking' : listening ? 'listening' : 'idle'} />,
+            }}
+            right={{
+              icon: listening ? 'mic.fill' : 'mic.slash.fill',
+              caption: listening ? 'Mic on' : 'Mic off',
+              label: listening ? mic.turnOff : voice.micStatus === 'needs-permission' ? mic.allow : mic.turnOn,
+              hint:
+                voice.micStatus === 'needs-permission'
+                  ? voice.voiceState.canAskAgain
+                    ? mic.allowHint
+                    : mic.openSettingsHint
+                  : listening
+                    ? mic.turnOffHint
+                    : mic.turnOnHint,
+              disabled: voice.micStatus === 'unavailable',
+              onPress: voice.pressMic,
+            }}
           />
-          <Button
-            variant="secondary"
-            label={sceneUi.describeButton}
-            accessibilityHint={sceneUi.describeHint}
-            disabled={!canSearch}
-            onPress={describe}
-          />
-        </ScrollView>
-      </View>
-    </SafeAreaView>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 function PermissionPrompt(props: { checking: boolean; canAskAgain: boolean; onRequest: () => void }) {
   if (props.checking) {
-    return <AppText tone="secondary">Checking camera permission…</AppText>;
+    return (
+      <View style={styles.permission}>
+        <AppText tone="inverse">Checking camera permission…</AppText>
+      </View>
+    );
   }
   if (!props.canAskAgain) {
     return (
       <View style={styles.permission}>
-        <AppText tone="danger">
-          Camera access is off. The camera is needed to describe your surroundings. Allow it in Settings,
-          HeyNavi, Camera, then come back.
+        <AppText tone="inverse">
+          Camera access is off. The camera is needed to describe your surroundings. Allow it in Settings, HeyNavi,
+          Camera, then come back.
         </AppText>
         <Button label="Open Settings" variant="secondary" onPress={() => Linking.openSettings()} />
       </View>
@@ -226,57 +272,31 @@ function PermissionPrompt(props: { checking: boolean; canAskAgain: boolean; onRe
   }
   return (
     <View style={styles.permission}>
-      <AppText>The camera is needed to describe your surroundings.</AppText>
-      <Button
-        label="Allow camera access"
-        accessibilityHint="Shows the iOS camera permission prompt."
-        onPress={props.onRequest}
-      />
+      <AppText tone="inverse">The camera is needed to describe your surroundings.</AppText>
+      <Button label="Allow camera access" accessibilityHint="Shows the iOS camera permission prompt." onPress={props.onRequest} />
     </View>
   );
 }
 
-/** Largest 9:16 rectangle that fits the available area. */
-function fitPreview(width: number, height: number): { width: number; height: number } {
-  const fitted = Math.min(width, height * PREVIEW_ASPECT);
-  return { width: Math.floor(fitted), height: Math.floor(fitted / PREVIEW_ASPECT) };
-}
-
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+/**
+ * The 9:16 camera view that covers the whole screen: as tall as the screen on a tall phone (its
+ * sides then extend past the screen), as wide as the screen otherwise. Centered.
+ */
+function coverScreen(width: number, height: number): { width: number; height: number; left: number; top: number } {
+  if (width === 0 || height === 0) return { width: 0, height: 0, left: 0, top: 0 };
+  const tall = height / width > 1 / CAMERA_ASPECT;
+  const w = tall ? height * CAMERA_ASPECT : width;
+  const h = tall ? height : width / CAMERA_ASPECT;
+  return { width: Math.ceil(w), height: Math.ceil(h), left: Math.floor((width - w) / 2), top: Math.floor((height - h) / 2) };
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.white,
-  },
-  root: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-  },
-  previewArea: {
-    flex: 1,
-    minHeight: MIN_PREVIEW_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  preview: {
-    borderRadius: radii.card,
-    overflow: 'hidden',
-    backgroundColor: colors.text,
-  },
-  permission: {
-    alignSelf: 'stretch',
-    gap: spacing.sm,
-  },
-  controlsScroll: {
-    // Content height while it fits; shrinks (and scrolls) once it does not.
-    flexGrow: 0,
-  },
-  controls: {
-    gap: spacing.md,
-    paddingBottom: spacing.lg,
-  },
+  root: { flex: 1, backgroundColor: colors.cameraChrome, overflow: 'hidden' },
+  camera: { position: 'absolute', backgroundColor: colors.cameraChrome },
+  hud: { left: spacing.md, bottom: undefined },
+  topScrim: { position: 'absolute', left: 0, right: 0, backgroundImage: 'linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 100%)' },
+  bottomScrim: { position: 'absolute', left: 0, right: 0, backgroundImage: 'linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.55) 100%)' },
+  bottom: { position: 'absolute', left: spacing.md, right: spacing.md, gap: spacing.md },
+  error: { padding: spacing.sm },
+  permission: { flex: 1, justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
 });
