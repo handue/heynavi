@@ -1,5 +1,5 @@
 /**
- * Announcement engine (ARCHITECTURE 5): one utterance at a time, priority preemption, dedupe,
+ * Announcement engine (ARCHITECTURE 6): one utterance at a time, priority preemption, dedupe,
  * TTL and stale-goal dropping. The speaker, clock and timers are injected so every rule is
  * unit-testable without expo-speech.
  */

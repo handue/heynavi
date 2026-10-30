@@ -161,3 +161,17 @@ SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the l
 - **Barge-in over the loudspeaker works.** A "stop" said while HeyNavi talks usually arrives alone in an interim result and cuts the speech at once. Sometimes it arrives glued to HeyNavi's echoed words, before them ("cancer the largest is on the left") or after them ("the largest stop"); both are now matched against what HeyNavi said. iOS sometimes starts a new transcript segment between an interim "stop" and its final; the final then looked like a "stop" said in silence and ended the search, which was fixed.
 - **The mic also hears VoiceOver** reading the screen ("status ready", "page one of two"). None of it parsed as a command. The echo gate only knows HeyNavi's own speech, so spoken labels and hints must keep avoiding command words (a unit test checks them).
 - **Not verified yet:** auto-lock while idle on a release build (dev builds keep the screen awake), and recovery after a phone call or Siri interruption.
+
+## 8. Walking routes (navigation milestone)
+
+Checked 2026-10-29 from the development Mac; details and sources in [research/routing.md](research/routing.md).
+
+| Item | Status | Finding |
+|---|---|---|
+| Apple MapKit walking route in Seoul | ✅ measured | `MKDirections` (`.walking`), City Hall → Gwanghwamun Square: 756 m, 6 steps with English instructions, 320 ms. No API key or account |
+| Apple MapKit place search in Seoul | ✅ measured | `MKLocalSearch`: pharmacy, Starbucks, subway station and a landmark all returned results in 200–320 ms, with English names. Results need sorting by distance |
+| OSRM foot profile (FOSSGIS public server) | ✅ measured | Same pair: 897 m, 8 maneuvers, 0.69 s. No key; public server for light use only |
+| Google walking directions in Korea | ✅ not available | Map-data export rules; a Feb 2026 decision may change this later, but nothing confirms the Routes API supports it today |
+| TMAP pedestrian API | 🟡 | Best Korean data; needs an SK Open API key, free quota unpublished |
+| On the iPhone | ❓ | Not run yet. The same MapKit calls from a local Expo module are part of M5 |
+

@@ -1,5 +1,5 @@
 /**
- * Multi-frame confirmation (ARCHITECTURE 4.2). Per-image SAM calls have no stable object ids,
+ * Multi-frame confirmation (ARCHITECTURE 5.1). Per-image SAM calls have no stable object ids,
  * so detections in different frames count as the same object when their centers are close.
  */
 import type { Detection } from './types.ts';

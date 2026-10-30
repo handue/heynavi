@@ -1,5 +1,5 @@
 /**
- * English voice command grammar (ARCHITECTURE 6). Pure: text in, Command out, well under 1 ms.
+ * English voice command grammar (ARCHITECTURE 9, 7.1). Pure: text in, Command out, well under 1 ms.
  *
  * A transcript is a command only when the WHOLE utterance (after an optional "Hey Navi" and a
  * little politeness) is one: "stop", "please stop", "find my keys". A sentence that merely

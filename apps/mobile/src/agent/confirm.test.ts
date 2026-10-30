@@ -7,7 +7,7 @@ import { CONFIRM, bestCandidate, candidates, confirm, largest, nearestCandidate 
 import { det } from './test-helpers.ts';
 
 describe('CONFIRM', () => {
-  it('has the ARCHITECTURE 4.2 initial values', () => {
+  it('has the ARCHITECTURE 5.1 initial values', () => {
     assert.deepEqual(CONFIRM, {
       tauDetect: 0.4,
       tauConfirm: 0.5,
