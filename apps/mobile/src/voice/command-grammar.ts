@@ -24,7 +24,15 @@ export type Command =
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'repeat' }
-  | { type: 'help' };
+  | { type: 'help' }
+  /** "What's around me": describe the current view now (M3). */
+  | { type: 'describe' }
+  /** Step how much HeyNavi says on its own up or down. */
+  | { type: 'more-updates' }
+  | { type: 'fewer-updates' }
+  /** Turn the proactive scene updates off or on (search and replies are unaffected). */
+  | { type: 'updates-off' }
+  | { type: 'updates-on' };
 
 export type CommandType = Command['type'];
 
@@ -215,6 +223,75 @@ const EXACT: Readonly<Record<Exclude<CommandType, 'find'>, readonly string[]>> =
     'pardon',
   ],
   help: ['help', 'help me', 'what can i say', 'what can you do'],
+  describe: [
+    "what's around me",
+    'what is around me',
+    'whats around me',
+    "what's around",
+    'what is around',
+    "what's in front of me",
+    'what is in front of me',
+    'whats in front of me',
+    "what's here",
+    'what is here',
+    'what do you see',
+    'what can you see',
+    'tell me what you see',
+    'describe',
+    'describe it',
+    'describe this',
+    'describe the scene',
+    'describe the room',
+    'describe what you see',
+    'look around',
+  ],
+  'more-updates': [
+    'more updates',
+    'more update',
+    'more detail',
+    'more details',
+    'more information',
+    'tell me more',
+    'talk more',
+    'be more detailed',
+  ],
+  'fewer-updates': [
+    'quieter',
+    'be quieter',
+    'fewer updates',
+    // Heard on the iPhone 16e for "fewer updates".
+    'fewer update',
+    'fear update',
+    'fear updates',
+    'few updates',
+    'less updates',
+    'less detail',
+    'less details',
+    'fewer details',
+    'talk less',
+    'less talking',
+    'too much talking',
+    'too much',
+  ],
+  'updates-off': [
+    'updates off',
+    'turn off updates',
+    'turn updates off',
+    'stop updates',
+    'stop the updates',
+    'pause updates',
+    'pause the updates',
+    'mute updates',
+    'no more updates',
+  ],
+  'updates-on': [
+    'updates on',
+    'turn on updates',
+    'turn updates on',
+    'resume updates',
+    'start updates',
+    'unmute updates',
+  ],
 };
 
 const EXACT_LOOKUP: ReadonlyMap<string, Exclude<CommandType, 'find'>> = new Map(
@@ -516,5 +593,13 @@ export const CONTEXTUAL_STRINGS: readonly string[] = [
   'keep looking',
   'repeat',
   'help',
+  "what's around me",
+  'describe',
+  'quieter',
+  'more detail',
+  'fewer updates',
+  'more updates',
+  'updates off',
+  'updates on',
   ...Object.keys(LEXICON),
 ];

@@ -7,17 +7,21 @@ is reported at once and the app sends the next one instead of waiting in a back-
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import math
-import re
 import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.deps import TokenFirstRoute, get_app_settings, get_meta_client, require_app_token
+from app.budget import UsageMeter
+from app.deps import (
+    TokenFirstRoute,
+    get_app_settings,
+    get_meta_client,
+    get_usage_meter,
+    require_app_token,
+)
 from app.errors import ApiError
 from app.images import (
     JPEG_DATA_URL_PREFIX,
@@ -33,21 +37,13 @@ from app.meta.sam import (
     extract_output_text,
     parse_sam_output,
 )
+from app.routes.upstream import budget_exhausted_error, call_once, to_api_error
 from app.settings import Settings
 
 log = logging.getLogger("heynavi.detect")
 
 CONCEPT_PATTERN = r"^[A-Za-z][A-Za-z -]{0,63}$"
 GOAL_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
-# Upper bound for a Retry-After passed on from Meta to the app.
-MAX_RETRY_AFTER_SECONDS = 3600
-_SAFE_CODE = re.compile(r"[A-Za-z0-9_.-]{1,80}")
-# Our own contract codes; a Meta code spelled the same must not pass for one of them.
-_CONTRACT_CODES = frozenset(
-    {"unauthorized", "invalid_request", "image_too_large", "key_not_configured",
-     "timeout", "rate_limited", "upstream_error"}
-)
-
 router = APIRouter(prefix="/v1", route_class=TokenFirstRoute)
 
 
@@ -92,10 +88,13 @@ async def detect(
     _: Annotated[None, Depends(require_app_token)],
     settings: Annotated[Settings, Depends(get_app_settings)],
     client: Annotated[MetaClient | None, Depends(get_meta_client)],
+    usage: Annotated[UsageMeter, Depends(get_usage_meter)],
 ) -> DetectResponse:
     started = time.perf_counter()
     if client is None:
         raise ApiError(503, "key_not_configured", "MODEL_API_KEY is not set on the server")
+    if usage.exhausted():
+        raise budget_exhausted_error()
     try:
         # Decoded only to validate it; the app's base64 text is forwarded unchanged.
         decode_base64_jpeg(body.image_b64)
@@ -112,7 +111,9 @@ async def detect(
         response = await _call_sam(client, payload, settings.sam_timeout_seconds)
         client.ensure_completed(response)  # a "failed" 200 is not a confirmed miss
     except MetaAPIError as exc:
-        error = _to_api_error(exc, settings.sam_timeout_seconds)
+        if exc.status is not None or exc.code == "timeout":
+            usage.add(sam_images=1)  # it may still be billed
+        error = to_api_error(exc, settings.sam_timeout_seconds, "the detector")
         log.warning(
             "detect goal=%s frame=%d concept=%r failed after %.0f ms: meta status=%s code=%s -> %d %s",
             body.goal_id, body.frame_id, body.concept, _ms_since(sam_started),
@@ -120,6 +121,7 @@ async def detect(
         )
         raise error from None
     sam_ms = _ms_since(sam_started)
+    usage.add(sam_images=1)
 
     parse_started = time.perf_counter()
     found = sorted(parse_sam_output(extract_output_text(response)), key=_best_first)
@@ -145,36 +147,7 @@ async def detect(
 
 
 async def _call_sam(client: MetaClient, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
-    """One attempt, no retry. httpx timeouts apply per phase (connect, write, read), so
-    asyncio.timeout also caps the whole call at the same budget."""
-    try:
-        async with asyncio.timeout(timeout):
-            return await client.create_response(payload, timeout=timeout, retry=False)
-    except TimeoutError:
-        pass
-    # Raised outside the except block so the cancelled httpx call is not chained onto it.
-    raise MetaAPIError(None, "timeout", "deadline exceeded")
-
-
-def _to_api_error(exc: MetaAPIError, timeout: float) -> ApiError:
-    """Contract errors with our own messages: never Meta's message or body."""
-    if exc.code == "timeout":
-        return ApiError(504, "timeout", f"the detector did not answer within {timeout:g} s")
-    if exc.status == 429:
-        headers = None
-        if exc.retry_after is not None and math.isfinite(exc.retry_after):
-            seconds = math.ceil(min(exc.retry_after, MAX_RETRY_AFTER_SECONDS))
-            headers = {"Retry-After": str(seconds)}
-        return ApiError(429, "rate_limited", "the detector is rate limited; try again shortly", headers)
-    if exc.code == "network_error":
-        return ApiError(502, "upstream_error", "the detector could not be reached")
-    if (
-        not exc.code_from_body  # Meta's error.type, or a code MetaClient made up
-        or exc.code in _CONTRACT_CODES
-        or not _SAFE_CODE.fullmatch(exc.code)
-    ):
-        return ApiError(502, "upstream_error", "the detector returned an unusable answer")
-    return ApiError(502, exc.code, "the detector could not process this frame")
+    return await call_once(client, payload, timeout)
 
 
 def _best_first(det: SamDetection) -> tuple[bool, float]:

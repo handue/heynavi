@@ -183,6 +183,9 @@ export type EchoAlignment = {
  * "stop"). The first match may be anywhere (a segment can start mid-sentence); after that each
  * match must follow the previous one within ALIGN_WINDOW words. A word that matches nothing is
  * skipped (misheard). Null when no word matches: there is no echo in the transcript.
+ *
+ * A line can repeat a word ("or" twice in the help line), so every place the first matched word
+ * occurs is tried as the start, and the start that explains the most words wins.
  */
 export function alignEcho(transcript: string, references: readonly string[]): EchoAlignment | null {
   const words = normalize(transcript).split(' ').filter((w) => w.length > 0);
@@ -192,20 +195,31 @@ export function alignEcho(transcript: string, references: readonly string[]): Ec
       .filter((w) => w.length > 0),
   );
   const refStems = ref.map(stem);
-  let pos = 0;
-  let last = -1;
-  words.forEach((word, i) => {
-    const target = stem(word);
-    const end = last < 0 ? ref.length : Math.min(ref.length, pos + ALIGN_WINDOW);
-    for (let j = pos; j < end; j++) {
-      if (refStems[j] === target) {
-        pos = j + 1;
-        last = i;
-        return;
+  const first = words.findIndex((w) => refStems.includes(stem(w)));
+  if (first < 0) return null;
+  let best: { pos: number; last: number; matched: number } | null = null;
+  refStems.forEach((refStem, start) => {
+    if (refStem !== stem(words[first])) return;
+    let pos = start + 1;
+    let last = first;
+    let matched = 1;
+    for (let i = first + 1; i < words.length; i++) {
+      const target = stem(words[i]);
+      const end = Math.min(ref.length, pos + ALIGN_WINDOW);
+      for (let j = pos; j < end; j++) {
+        if (refStems[j] === target) {
+          pos = j + 1;
+          last = i;
+          matched++;
+          break;
+        }
       }
     }
+    if (!best || matched > best.matched || (matched === best.matched && last > best.last)) {
+      best = { pos, last, matched };
+    }
   });
-  if (last < 0) return null;
+  const { pos, last } = best!;
   return { tail: words.slice(last + 1), ahead: ref.slice(pos) };
 }
 

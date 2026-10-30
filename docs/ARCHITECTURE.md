@@ -91,14 +91,15 @@ The capture queue (M1) keeps one capture in flight. A full cycle took 1.1–1.5 
 
 ```
 apps/mobile/src/
-  app/            Expo Router screens: index (home), session (camera session), diagnostics    [M0–M2]
+  app/            Expo Router screens: index (home), session (camera session), diagnostics    [M0–M3]
   agent/          pure TS, unit-tested: types, search-machine, confirm, announcer, phrases     [M1–M2]
   scene/          pure TS: scene-memory, attention-policy, scene-phrases, wording-filter        [M3]
   grounding/      grounding checker (reuses agent/confirm)                                      [M4]
   conversation/   intent router, ask client                                                     [M4]
   navigation/     pure TS route tracker, geo math, route phrases                                [M5]
   perception/     capture.ts (capture queue) [M1]; scheduler.ts [M3]
-  session/        session hook and controllers, metrics, overlays, state strip                  [M1–M2]
+  session/        camera-session hook (search + scene on one announcer), metrics, overlays,
+                  search strip, session status and last-said caption                           [M1–M3]
   voice/          voice controller, echo gate, command grammar, speaker, speech tracker         [M2]
   api/            typed backend client                                                          [M1]
   feedback/       haptics [M1]; earcons [M3]
@@ -127,6 +128,23 @@ interface SessionState {
 ```
 
 The scene track pauses during a search and keeps running during navigation, where it adds supplementary context.
+
+### 3.3 Session screen: camera first (decided 2026-10-30)
+
+HeyNavi is not an object picker. The camera session has no list of objects to choose from and no detection dashboard. The core loop is: open HeyNavi → the camera observes → the AI understands → HeyNavi speaks on its own → the user answers by voice.
+
+Top to bottom:
+
+1. **Camera preview** (9:16, the largest element). A tap anywhere on it does the same as Magic Tap. While a search runs, SAM's box for the target is drawn on it; a small latency readout (SAM or Spark) sits in a corner for the demo.
+2. **Status.** While observing: a chip ("Observing", "Observing paused", "Starting the camera") and the update level. While a search runs: the search strip (target, state, 3-dot confirmation).
+3. **Last said.** The line HeyNavi is speaking or last spoke, as text, for low-vision users and sighted helpers.
+4. **Mic status**, with its on/off control (M2).
+5. **One primary button**: "Pause observing" / "Resume observing", or "End search" while a search runs.
+6. **One secondary button**: "Describe the view" (the touch version of "What's around me").
+
+Everything else is voice: "What's around me", "Find a chair", "Where is the entrance", "quieter", "more detail", "pause", "resume", "repeat", "cancel". Active Object Search keeps its engine (M1–M2) and is started only by voice; the target is whatever noun phrase the user says. Magic Tap: silence speech, else end a search, else pause or resume observing. The VoiceOver escape gesture ends a search and goes back.
+
+Labels and hints are read aloud by VoiceOver and heard by the microphone, so none is a voice command, none starts with "stop", and none contains the wake word (unit-tested). A route card for navigation (M5) will join the status area only while a route is active.
 
 ## 4. Continuous Scene Understanding (primary)
 

@@ -78,3 +78,55 @@ describe('voice command semantics', () => {
     assert.equal(stopsSpeech(planCommand({ type: 'help' }, ctx('SEARCHING'))), false);
   });
 });
+
+describe('scene update commands', () => {
+  const exploring = (status: SearchStatus = 'IDLE', speaking = false, scene = { running: true, pausedByUser: false }): VoiceContext => ({
+    status,
+    speaking,
+    canSearch: true,
+    scene,
+  });
+  const held = { running: false, pausedByUser: true };
+
+  it('"stop" in silence holds the updates when no search runs', () => {
+    assert.deepEqual(types(planCommand({ type: 'stop' }, exploring())), ['pause-updates', 'reply']);
+    assert.deepEqual(types(planCommand({ type: 'stop' }, exploring('SEARCHING'))), ['stop-search']);
+    // Over speech it still only silences.
+    assert.deepEqual(types(planCommand({ type: 'stop' }, exploring('IDLE', true))), ['silence']);
+  });
+
+  it('"cancel" never holds the updates', () => {
+    assert.deepEqual(types(planCommand({ type: 'cancel' }, exploring('IDLE', true))), ['silence']);
+    assert.deepEqual(types(planCommand({ type: 'cancel' }, exploring())), []);
+  });
+
+  it('"pause" and "resume" act on the search first, then on the updates', () => {
+    assert.deepEqual(types(planCommand({ type: 'pause' }, exploring('SEARCHING'))), ['pause', 'reply']);
+    assert.deepEqual(types(planCommand({ type: 'pause' }, exploring())), ['pause-updates', 'reply']);
+    assert.deepEqual(types(planCommand({ type: 'resume' }, exploring('IDLE', false, held))), ['resume-updates', 'reply']);
+    assert.deepEqual(types(planCommand({ type: 'resume' }, exploring())), []);
+    assert.deepEqual(types(planCommand({ type: 'resume' }, exploring('PAUSED', false, held))), ['resume']);
+  });
+
+  it('"updates off" and "updates on" toggle the user hold and say so', () => {
+    assert.deepEqual(types(planCommand({ type: 'updates-off' }, exploring())), ['pause-updates', 'reply']);
+    assert.deepEqual(planCommand({ type: 'updates-off' }, exploring('IDLE', false, held)), [
+      { type: 'reply', key: 'updates-paused', text: 'Updates paused. To hear them again, say resume.' },
+    ]);
+    assert.deepEqual(types(planCommand({ type: 'updates-on' }, exploring('IDLE', false, held))), ['resume-updates', 'reply']);
+    assert.deepEqual(planCommand({ type: 'updates-on' }, exploring()), [
+      { type: 'reply', key: 'updates-on', text: 'Updates are already on.' },
+    ]);
+  });
+
+  it('describe and verbosity', () => {
+    assert.deepEqual(planCommand({ type: 'describe' }, exploring('GUIDING')), [{ type: 'describe' }]);
+    assert.deepEqual(types(planCommand({ type: 'describe' }, { ...exploring(), canSearch: false })), ['reply']);
+    assert.deepEqual(planCommand({ type: 'more-updates' }, exploring()), [{ type: 'verbosity', delta: 1 }]);
+    assert.deepEqual(planCommand({ type: 'fewer-updates' }, exploring()), [{ type: 'verbosity', delta: -1 }]);
+  });
+
+  it('holding the updates is a stop-latency sample', () => {
+    assert.equal(stopsSpeech(planCommand({ type: 'stop' }, exploring())), true);
+  });
+});

@@ -26,5 +26,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def make_settings(**overrides: Any) -> Settings:
-    """Settings that never read backend/.env."""
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    """Settings that never read backend/.env, and never write usage or metrics files unless a
+    test passes its own paths."""
+    defaults: dict[str, Any] = {"usage_file": None, "metrics_file": None}
+    return Settings(_env_file=None, **{**defaults, **overrides})  # type: ignore[call-arg]

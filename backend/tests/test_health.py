@@ -119,8 +119,9 @@ def test_deep_health_on_network_error() -> None:
 
 def test_registered_routes() -> None:
     paths = create_app(make_settings()).openapi()["paths"]
-    assert set(paths) == {"/health", "/v1/detect"}
-    assert set(paths["/v1/detect"]) == {"post"}
+    assert set(paths) == {"/health", "/v1/detect", "/v1/scene", "/v1/metrics"}
+    for path in ("/v1/detect", "/v1/scene", "/v1/metrics"):
+        assert set(paths[path]) == {"post"}
 
 
 def test_deep_health_401_uses_contract_error_shape() -> None:

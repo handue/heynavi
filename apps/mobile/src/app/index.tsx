@@ -6,7 +6,7 @@ import { AppText } from '@/components/app-text';
 import { Button } from '@/components/button';
 import { colors, spacing } from '@/theme/tokens';
 
-/** Home (wireframe 01 flavour). The voice-first start arrives in M2. */
+/** Home (wireframe 01 flavour). Start HeyNavi opens the camera session, which starts exploring. */
 export default function HomeScreen() {
   const router = useRouter();
 
@@ -24,7 +24,7 @@ export default function HomeScreen() {
         <Button
           large
           label="Start HeyNavi"
-          accessibilityHint="Opens the camera to search for an object, with spoken feedback."
+          accessibilityHint="Opens the camera and describes what it notices. You can also ask it to find an object."
           onPress={() => router.push('/session')}
         />
         <Button

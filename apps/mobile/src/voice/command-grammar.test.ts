@@ -279,3 +279,33 @@ describe('sameCommand and contextual strings', () => {
     assert.ok(CONTEXTUAL_STRINGS.length <= 100);
   });
 });
+
+describe('scene commands (M3)', () => {
+  it('parses describe, verbosity and update toggles', () => {
+    const cases: [string, string][] = [
+      ["Hey Navi, what's around me?", 'describe'],
+      ['What is in front of me', 'describe'],
+      ['what do you see', 'describe'],
+      ['describe the scene please', 'describe'],
+      ['look around', 'describe'],
+      ['more updates', 'more-updates'],
+      ['tell me more', 'more-updates'],
+      ['fewer updates', 'fewer-updates'],
+      ['Fear update', 'fewer-updates'],
+      ['quieter please', 'fewer-updates'],
+      ['less detail please', 'fewer-updates'],
+      ['updates off', 'updates-off'],
+      ['stop updates', 'updates-off'],
+      ['pause updates', 'updates-off'],
+      ['turn on updates', 'updates-on'],
+      ['resume updates', 'updates-on'],
+    ];
+    for (const [text, type] of cases) assert.equal(parse(text)?.type, type, text);
+  });
+
+  it('keeps "look for" a search and plain "stop" a stop', () => {
+    assert.deepEqual(parse('look for a chair'), { type: 'find', concept: 'chair', spoken: 'chair' });
+    assert.deepEqual(parse('stop'), { type: 'stop' });
+    assert.equal(parse('updates'), null);
+  });
+});

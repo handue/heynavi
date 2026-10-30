@@ -14,6 +14,9 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
+# Backend runtime state: the day's model usage and app metric lines
+backend/var/
+
 # Benchmark inputs are personal photos; keep them local
 backend/bench/frames/*
 !backend/bench/frames/.gitkeep

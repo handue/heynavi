@@ -5,24 +5,26 @@ import { formatMs } from '@/lib/stats';
 import { colors, radii, spacing } from '@/theme/tokens';
 
 type Props = {
+  /** The model on the current loop: SAM 3.1 while searching, Muse Spark while observing. */
+  model: 'SAM' | 'Spark';
   lastRttMs: number | null;
   p50RttMs: number | null;
-  lastSamMs: number | null;
+  lastModelMs: number | null;
   frames: number;
 };
 
 /** Small latency readout on the preview, for the demo and for tuning. */
-export function LatencyHud({ lastRttMs, p50RttMs, lastSamMs, frames }: Props) {
+export function LatencyHud({ model, lastRttMs, p50RttMs, lastModelMs, frames }: Props) {
   return (
     <View
       style={styles.hud}
       accessible
-      accessibilityLabel={`Latency: round trip ${formatMs(lastRttMs)}, median ${formatMs(p50RttMs)}, SAM ${formatMs(lastSamMs)}, ${frames} frames`}>
+      accessibilityLabel={`Latency: round trip ${formatMs(lastRttMs)}, median ${formatMs(p50RttMs)}, ${model} ${formatMs(lastModelMs)}, ${frames} frames`}>
       <AppText variant="caption" tone="inverse">
         RTT {formatMs(lastRttMs)} · p50 {formatMs(p50RttMs)}
       </AppText>
       <AppText variant="caption" tone="inverse">
-        SAM {formatMs(lastSamMs)} · #{frames}
+        {model} {formatMs(lastModelMs)} · #{frames}
       </AppText>
     </View>
   );
