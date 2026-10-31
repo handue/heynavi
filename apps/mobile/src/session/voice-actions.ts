@@ -45,7 +45,12 @@ export type VoiceAction =
   /** Step verbosity; the session replies with the result. */
   | { type: 'verbosity'; delta: 1 | -1 }
   /** Answer a question from the current view (it may hand off to a search). */
-  | { type: 'ask'; question: string };
+  | { type: 'ask'; question: string }
+  /** Walking directions (M6): start a route, the next step, where the user is, end the route. */
+  | { type: 'navigate'; destination: string }
+  | { type: 'next-step' }
+  | { type: 'where-am-i' }
+  | { type: 'stop-navigation' };
 
 /** Only a "where is …" question may hand off to a search when its thing is not in view. */
 export function startsSearch(question: string): boolean {
@@ -116,6 +121,15 @@ export function planCommand(command: Command, context: VoiceContext): VoiceActio
       return context.canSearch
         ? [{ type: 'ask', question: command.question }]
         : [{ type: 'reply', key: 'camera-not-ready', text: voice.cameraNotReady() }];
+    // Navigation does not need the camera: the map and the GPS do the work.
+    case 'navigate':
+      return [{ type: 'navigate', destination: command.destination }];
+    case 'next-step':
+      return [{ type: 'next-step' }];
+    case 'where-am-i':
+      return [{ type: 'where-am-i' }];
+    case 'stop-navigation':
+      return [...(speaking ? [{ type: 'silence' } as const] : []), { type: 'stop-navigation' }];
   }
 }
 

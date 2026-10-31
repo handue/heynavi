@@ -96,14 +96,15 @@ apps/mobile/src/
   scene/          pure TS: scene-memory, attention-policy, scene-phrases, wording-filter        [M3]
   grounding/      grounding checker (reuses agent/confirm)                                      [M4]
   conversation/   intent router, ask client                                                     [M4]
-  navigation/     pure TS route tracker, geo math, route phrases                                [M5]
+  navigation/     pure TS geo math, route model, route tracker, route phrases, navigation
+                  controller; expo-location adapter                                            [M6]
   perception/     capture.ts (capture queue) [M1]; scheduler.ts [M3]
   session/        camera-session hook (search + scene on one announcer), metrics, overlays,
                   search strip, session status and last-said caption                           [M1–M3]
   voice/          voice controller, echo gate, command grammar, speaker, speech tracker         [M2]
   api/            typed backend client                                                          [M1]
   feedback/       haptics [M1]; earcons [M3]
-apps/mobile/modules/heynavi-maps/   local Expo module (Swift): MKLocalSearch, MKDirections walking   [M5]
+apps/mobile/modules/heynavi-maps/   local Expo module (Swift): MKLocalSearch, MKDirections walking   [M6]
 ```
 
 Changes to existing modules:
@@ -352,7 +353,10 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 - **Over HeyNavi's speech.** Questions are accepted while HeyNavi talks, and picked out of its echo when said just before or after its words, but not if they repeat a content word HeyNavi just said.
 - **Limitations.** Without a wake phrase, a question asked by someone nearby is answered too. Misrecognitions become wrong questions ("where is the door" heard as "where is the war").
 
-## 8. Destination Navigation (M6, stretch)
+## 8. Destination Navigation (M6)
+
+**Implemented (2026-10-30):** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route; the route instruction is not yet passed to Spark (below).
+
 
 - **Provider: Apple MapKit on the phone**, through a local Expo module (Swift, about 150 lines):
   - `MKLocalSearch` resolves a destination by name or category, and the app sorts the results by distance.

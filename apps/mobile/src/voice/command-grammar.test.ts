@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 
 import {
   CONTEXTUAL_STRINGS,
+  acceptedOverSpeech,
   LEXICON,
   analyze,
   isBargeIn,
@@ -342,5 +343,42 @@ describe('questions (M4)', () => {
     for (const text of ['quieter', 'Quitter', 'quiet her', 'be quieter', 'talk less', 'spider spider']) {
       assert.equal(parse(text)?.type, 'fewer-updates', text);
     }
+  });
+});
+
+describe('navigation commands (M6)', () => {
+  it('reads a place out of a request for walking directions', () => {
+    const cases: [string, string][] = [
+      ['navigate to the nearest pharmacy', 'pharmacy'],
+      ['Hey Navi, take me to Starbucks', 'starbucks'],
+      ['how do I get to Seoul Station', 'seoul station'],
+      ['give me directions to the closest subway station', 'subway station'],
+      ['show me the way to Gwanghwamun Square please', 'gwanghwamun square'],
+      ["let's go to a nearby convenience store", 'convenience store'],
+      ['navigate to City Hall', 'city hall'],
+    ];
+    for (const [said, place] of cases) assert.deepEqual(parse(said), { type: 'navigate', destination: place }, said);
+  });
+
+  it('knows the route questions and how to end a route', () => {
+    assert.deepEqual(parse("what's next"), { type: 'next-step' });
+    assert.deepEqual(parse('how far is it'), { type: 'next-step' });
+    assert.deepEqual(parse('where am I'), { type: 'where-am-i' });
+    assert.deepEqual(parse('what street am I on'), { type: 'where-am-i' });
+    assert.deepEqual(parse('stop navigation'), { type: 'stop-navigation' });
+    assert.deepEqual(parse('cancel the route'), { type: 'stop-navigation' });
+    for (const type of ['next-step', 'where-am-i', 'stop-navigation'] as const) assert.equal(acceptedOverSpeech({ type }), true, type);
+  });
+
+  it('leaves other commands and non-places alone', () => {
+    assert.equal(parse('take me to it'), null);
+    assert.equal(parse('go to sleep'), null);
+    assert.equal(parse('next'), null);
+    assert.deepEqual(parse('find a chair'), { type: 'find', concept: 'chair', spoken: 'chair' });
+    assert.equal(parse('where is the entrance')?.type, 'ask');
+    assert.deepEqual(parse('stop'), { type: 'stop' });
+    // HeyNavi's own route lines never come back as commands.
+    assert.equal(parse('Route to Starbucks: about 450 meters, 3 turns.'), null);
+    assert.equal(parse('Next: in about 40 meters, turn right.'), null);
   });
 });

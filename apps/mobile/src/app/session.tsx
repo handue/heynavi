@@ -15,6 +15,7 @@ import { CaptionCard } from '@/session/caption-card';
 import { CENTER_SIZE, CONTROL_BAR_HEIGHT, ControlBar } from '@/session/control-bar';
 import { DetectionOverlay } from '@/session/detection-overlay';
 import { LatencyHud } from '@/session/latency-hud';
+import { RouteCard } from '@/session/route-card';
 import { TOP_BAR_HEIGHT, TopBar, type ChipTone, type PillTone } from '@/session/top-bar';
 import { useCameraSession } from '@/session/use-camera-session';
 import { getSettings, subscribeSettings } from '@/settings/app-settings';
@@ -62,6 +63,8 @@ export default function SessionScreen() {
     snapshot,
     sceneSnapshot,
     boxTurn,
+    navSnapshot,
+    endRoute,
     lastSaid,
     speaking,
     concept,
@@ -204,8 +207,13 @@ export default function SessionScreen() {
               Camera failed to start: {mountError}
             </AppText>
           ) : null}
-          <View pointerEvents="none" onLayout={(e) => setCaptionHeight(e.nativeEvent.layout.height)}>
-            <CaptionCard caption={lastSaid} speaking={speaking} />
+          {/* The route card (while navigating) and the caption, measured together so box labels
+              stay above both. Taps on the caption go through to the camera view. */}
+          <View pointerEvents="box-none" style={styles.cards} onLayout={(e) => setCaptionHeight(e.nativeEvent.layout.height)}>
+            <RouteCard nav={navSnapshot} onClose={endRoute} />
+            <View pointerEvents="none">
+              <CaptionCard caption={lastSaid} speaking={speaking} />
+            </View>
           </View>
           <ControlBar
             left={
@@ -297,6 +305,7 @@ const styles = StyleSheet.create({
   topScrim: { position: 'absolute', left: 0, right: 0, backgroundImage: 'linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 100%)' },
   bottomScrim: { position: 'absolute', left: 0, right: 0, backgroundImage: 'linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.55) 100%)' },
   bottom: { position: 'absolute', left: spacing.md, right: spacing.md, gap: spacing.md },
+  cards: { gap: spacing.sm },
   error: { padding: spacing.sm },
   permission: { flex: 1, justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
 });

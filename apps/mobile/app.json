@@ -57,6 +57,14 @@
         {
           "motionPermission": "HeyNavi uses motion sensors to tell whether the phone is held upright, so it can say whether something is on your left or right."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "HeyNavi uses your location only while you use it, to give walking directions from Apple Maps and to say which street you are on. Your location is not sent to HeyNavi's server.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
+        }
       ]
     ],
     "experiments": {
