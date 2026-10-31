@@ -10,6 +10,9 @@ import { phrases } from '@/agent/phrases';
 import { isActive } from '@/agent/search-machine';
 import { askQuestion, describeScene, detect, postMetrics } from '@/api/client';
 import { playHaptic } from '@/feedback/haptics';
+import { HeynaviMaps } from '../../modules/heynavi-maps';
+import { createExpoLocationPort } from '@/navigation/expo-location-port';
+import { createNavigationController, type NavigationController } from '@/navigation/navigation-controller';
 import { SCENE_CAPTURE, SESSION_CAPTURE, captureFrame, type CaptureOptions } from '@/perception/capture';
 import { IDENTITY, turnAngle, type Quaternion } from '@/perception/motion';
 import { createOrientationSampler, type OrientationSampler } from '@/perception/orientation-sampler';
@@ -59,6 +62,8 @@ type Session = {
   reply(key: string, text: string): void;
   orientation: OrientationSampler;
   uploader: MetricsUploader;
+  /** Walking directions from the map (M6), beside the camera. */
+  nav: NavigationController;
   /** The line HeyNavi most recently started speaking, shown as a caption. */
   caption: { subscribe(listener: () => void): () => void; get(): Caption | null };
   attachCamera: (camera: CameraView | null) => void;
@@ -142,8 +147,29 @@ function createSession(onDetach: () => void): Session {
     if (hasSearch(controller.getSnapshot().search.status)) sceneController.pause('search');
     else sceneController.resume('search');
   });
+  // Route lines have their own channel, above the camera's own lines (priority 1); answers to
+  // "where am I" and "what's next" are replies (priority 0).
+  const nav = createNavigationController({
+    maps: HeynaviMaps,
+    location: createExpoLocationPort(),
+    say: (line) =>
+      announcer.announce({
+        key: line.key,
+        priority: line.kind === 'reply' ? 0 : 1,
+        text: line.text,
+        lang: 'en-US',
+        ttlMs: line.ttlMs,
+        dedupeMs: 0,
+        goalId: null,
+        channel: line.kind === 'reply' ? 'reply' : 'route',
+      }),
+    now,
+    log,
+    devLog: __DEV__ ? (line) => console.log(line) : undefined,
+  });
   return {
     controller,
+    nav,
     scene: sceneController,
     announcer,
     speech,
@@ -187,12 +213,13 @@ function createSession(onDetach: () => void): Session {
  */
 export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) {
   const [cameraReady, setCameraReady] = useState(false);
-  const [{ controller, scene, announcer, speech, stopLatency, orientation, uploader, reply, caption, attachCamera }] = useState(() =>
+  const [{ controller, nav, scene, announcer, speech, stopLatency, orientation, uploader, reply, caption, attachCamera }] = useState(() =>
     createSession(() => setCameraReady(false)),
   );
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const sceneSnapshot = useSyncExternalStore(scene.subscribe, scene.getSnapshot);
   const lastSaid = useSyncExternalStore(caption.subscribe, caption.get);
+  const navSnapshot = useSyncExternalStore(nav.subscribe, nav.getSnapshot);
   const settings = useSyncExternalStore(subscribeSettings, getSettings);
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => speech.subscribe(() => setSpeaking(speech.speaking)), [speech]);
@@ -233,9 +260,10 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
       controller.shutdown();
       scene.shutdown();
       orientation.stop();
+      nav.shutdown();
       uploader.stop();
     },
-    [controller, scene, orientation, uploader],
+    [controller, scene, orientation, uploader, nav],
   );
 
   // The primary experience: exploring starts by itself once the camera can deliver frames, unless
@@ -408,6 +436,18 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
           );
           break;
         }
+        case 'navigate':
+          void nav.start(action.destination);
+          break;
+        case 'next-step':
+          nav.whatsNext();
+          break;
+        case 'where-am-i':
+          void nav.whereAmI();
+          break;
+        case 'stop-navigation':
+          nav.stop();
+          break;
       }
     }
   }
@@ -423,7 +463,7 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
   // HeyNavi explores, while a search runs or is paused, and while listening is wanted.
   // Development builds hide this: Expo's withDevTools keeps every screen awake when NODE_ENV is
   // not 'production', so test auto-lock on a release build.
-  const keepAwake = sceneSnapshot.running || active || status === 'PAUSED' || voice.voiceState.wanted;
+  const keepAwake = sceneSnapshot.running || active || status === 'PAUSED' || voice.voiceState.wanted || navSnapshot.status !== 'idle';
   useEffect(() => {
     if (!keepAwake) return;
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
@@ -440,6 +480,9 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
     snapshot,
     sceneSnapshot,
     boxTurn,
+    navSnapshot,
+    /** The route card's "End route" button. */
+    endRoute: () => nav.stop(),
     lastSaid,
     speaking,
     concept,

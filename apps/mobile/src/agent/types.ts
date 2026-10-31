@@ -87,9 +87,9 @@ export type Priority = 0 | 1 | 2 | 3;
 
 /**
  * Which kind of speech a line is (ARCHITECTURE 6.1). Camera observations can be cancelled as a
- * group (a search starts, updates pause) without touching replies or search lines.
+ * group (a search starts, updates pause) without touching replies, search or route lines.
  */
-export type Channel = 'reply' | 'camera' | 'goal' | 'status';
+export type Channel = 'reply' | 'camera' | 'goal' | 'status' | 'route';
 
 export type AnnounceEffect = {
   type: 'announce';

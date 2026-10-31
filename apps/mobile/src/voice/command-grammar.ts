@@ -34,7 +34,14 @@ export type Command =
   | { type: 'updates-off' }
   | { type: 'updates-on' }
   /** A question about the surroundings ("where is the entrance", "what objects are nearby"). */
-  | { type: 'ask'; question: string };
+  | { type: 'ask'; question: string }
+  /** Walking directions to a place on the map (M6): "navigate to the nearest pharmacy". */
+  | { type: 'navigate'; destination: string }
+  /** The next route step and what is left. */
+  | { type: 'next-step' }
+  /** The street and area from the map. */
+  | { type: 'where-am-i' }
+  | { type: 'stop-navigation' };
 
 export type CommandType = Command['type'];
 
@@ -67,6 +74,11 @@ const OVER_SPEECH: ReadonlySet<CommandType> = new Set<CommandType>([
   'help',
   // A whole question, or one said just before or after HeyNavi's echo (head/tail matching).
   'ask',
+  // Route questions and ending a route, often said while a route line plays. No route line
+  // starts with or contains these (route-tracker.test.ts voice audit).
+  'next-step',
+  'where-am-i',
+  'stop-navigation',
 ]);
 
 export function acceptedOverSpeech(command: Command): boolean {
@@ -78,6 +90,7 @@ export function sameCommand(a: Command, b: Command): boolean {
   if (a.type !== b.type) return false;
   if (a.type === 'find') return b.type === 'find' && a.concept === b.concept;
   if (a.type === 'ask') return b.type === 'ask' && a.question === b.question;
+  if (a.type === 'navigate') return b.type === 'navigate' && a.destination === b.destination;
   return true;
 }
 
@@ -192,7 +205,7 @@ const MOMENTS = ['a second', 'a sec', 'a moment', 'a minute', 'one second', 'one
 const PAUSE_VERBS = ['pause', 'wait', 'hold on', 'hang on', 'stop'];
 const PAUSE_FOR_A_MOMENT = PAUSE_VERBS.flatMap((verb) => MOMENTS.flatMap((m) => [`${verb} ${m}`, `${verb} for ${m}`]));
 
-const EXACT: Readonly<Record<Exclude<CommandType, 'find' | 'ask'>, readonly string[]>> = {
+const EXACT: Readonly<Record<Exclude<CommandType, 'find' | 'ask' | 'navigate'>, readonly string[]>> = {
   stop: ['stop', 'stop it', 'stop that'],
   cancel: [
     'cancel',
@@ -332,13 +345,107 @@ const EXACT: Readonly<Record<Exclude<CommandType, 'find' | 'ask'>, readonly stri
     'start updates',
     'unmute updates',
   ],
+  // Not bare "next": HeyNavi's own "Next: in about …" would come back through the microphone.
+  'next-step': [
+    "what's next",
+    'what is next',
+    'whats next',
+    'next step',
+    'next turn',
+    'next direction',
+    'next instruction',
+    'which way',
+    'which way now',
+    'which way do i go',
+    'where do i turn',
+    'where do i go',
+    'how far',
+    'how far is it',
+    'how much further',
+    'how much farther',
+    'how far to go',
+    'are we there yet',
+  ],
+  'where-am-i': [
+    'where am i',
+    'where am i now',
+    'where are we',
+    'where are we now',
+    'what street am i on',
+    'what street is this',
+    "what's my location",
+    'what is my location',
+    'whats my location',
+    'my location',
+    'current location',
+  ],
+  'stop-navigation': [
+    'stop navigation',
+    'stop navigating',
+    'stop the navigation',
+    'end navigation',
+    'end the navigation',
+    'cancel navigation',
+    'cancer navigation',
+    'cancel the navigation',
+    'exit navigation',
+    'quit navigation',
+    'navigation off',
+    'end route',
+    'end the route',
+    'stop the route',
+    'stop route',
+    'cancel route',
+    'cancel the route',
+    'stop directions',
+    'stop the directions',
+    'cancel directions',
+    'stop guiding',
+  ],
 };
 
-const EXACT_LOOKUP: ReadonlyMap<string, Exclude<CommandType, 'find' | 'ask'>> = new Map(
-  (Object.entries(EXACT) as [Exclude<CommandType, 'find' | 'ask'>, readonly string[]][]).flatMap(([type, phrases]) =>
+const EXACT_LOOKUP: ReadonlyMap<string, Exclude<CommandType, 'find' | 'ask' | 'navigate'>> = new Map(
+  (Object.entries(EXACT) as [Exclude<CommandType, 'find' | 'ask' | 'navigate'>, readonly string[]][]).flatMap(([type, phrases]) =>
     phrases.map((p) => [p, type] as const),
   ),
 );
+
+/**
+ * How a request for walking directions starts, longest first (checked before the search verbs:
+ * "show me the way to …"). None of HeyNavi's lines starts like this; "route to" is left out on
+ * purpose, since route lines start with "Route to …".
+ */
+const NAVIGATE_VERBS = [
+  'give me directions to',
+  'get me directions to',
+  'show me the way to',
+  'show me how to get to',
+  'how do i get to',
+  'how can i get to',
+  'how do i walk to',
+  'i want to go to',
+  'i need to go to',
+  "i'd like to go to",
+  'i would like to go to',
+  'directions to',
+  'direction to',
+  'navigate me to',
+  'navigate to',
+  'navigation to',
+  'take me to',
+  'guide me to',
+  'walk me to',
+  'lead me to',
+  'bring me to',
+  'get me to',
+  "let's go to",
+  'lets go to',
+  'go to',
+  'navigate',
+];
+/** Said before the place without being part of what to search for. */
+const PLACE_FILLERS = ['the nearest', 'a nearby', 'the closest', 'the nearby', 'nearest', 'closest', 'nearby', 'the', 'a', 'an', 'some'];
+const MAX_PLACE_WORDS = 6;
 
 /**
  * Verbs that start a search, longest first. Bare "looking for" is NOT one: it is how HeyNavi's
@@ -638,12 +745,33 @@ function matchCommand(text: string): Command | null {
   const forAt = text.endsWith(' for') ? text.length - 4 : text.indexOf(' for ');
   if (forAt > 0 && EXACT_LOOKUP.get(text.slice(0, forAt)) === 'cancel') return { type: 'cancel' };
   if (/^s?h{2,}$|^sh$/.test(text)) return { type: 'quiet' };
+  for (const verb of NAVIGATE_VERBS) {
+    if (text !== verb && startsWithPhrase(text, verb)) return navigateCommand(text.slice(verb.length).trim());
+  }
   for (const verb of FIND_VERBS) {
     if (text !== verb && startsWithPhrase(text, verb)) {
       return findCommand(text.slice(verb.length).trim());
     }
   }
   return null;
+}
+
+function navigateCommand(phrase: string): Command | null {
+  let place = phrase;
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const filler of PLACE_FILLERS) {
+      if (place !== filler && startsWithPhrase(place, filler)) {
+        place = place.slice(filler.length).trim();
+        changed = true;
+      }
+    }
+  }
+  const words = place.split(' ').filter(Boolean);
+  if (words.length === 0 || words.length > MAX_PLACE_WORDS) return null;
+  // "take me to it", "go to sleep there": no place.
+  if (words.length === 1 && (NOT_AN_OBJECT.has(words[0]) || ['sleep', 'bed', 'settings'].includes(words[0]))) return null;
+  return { type: 'navigate', destination: words.join(' ') };
 }
 
 function findCommand(phrase: string): Command | null {
@@ -704,5 +832,11 @@ export const CONTEXTUAL_STRINGS: readonly string[] = [
   'more updates',
   'updates off',
   'updates on',
+  'navigate to',
+  'take me to',
+  'directions to',
+  "what's next",
+  'where am i',
+  'stop navigation',
   ...Object.keys(LEXICON),
 ];
