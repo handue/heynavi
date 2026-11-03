@@ -19,7 +19,7 @@ All commands run from the repo root on a Mac.
 4. **Tests:** `cd backend && .venv/bin/python -m pytest -q`, and `cd apps/mobile && npm test && npm run typecheck`
 5. **Day-0 benchmark:** `cd backend && .venv/bin/python -m scripts.bench`
 6. **Results table** from the metrics the app uploads: `cd backend && .venv/bin/python -m scripts.results`
-7. **Release build** (JavaScript bundled, no Metro) and a tunnel for cellular: `cd apps/mobile && scripts/build-ios-device.sh --release`, then `backend/scripts/start-tunnel.sh` from the repo root
+7. **Release build** (JavaScript bundled, no Metro) and a tunnel for cellular: `cd apps/mobile && scripts/build-ios-device.sh --release`, then `backend/scripts/start-tunnel.sh <iPhone UDID>` from the repo root. It sends the tunnel's address to the app, checks the tunnel every 30 s, and starts a new one (and sends the new address) if the old one dies
 
 `apps/mobile/.env` must set `EXPO_PUBLIC_API_URL` to the Mac's LAN IP (`ipconfig getifaddr en0`) and `EXPO_PUBLIC_HEYNAVI_TOKEN` to the same value as `HEYNAVI_APP_TOKEN` in `backend/.env`. Templates are in the `.env.example` files.
 
