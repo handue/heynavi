@@ -74,11 +74,17 @@ start_tunnel() {
     return 1
   fi
   echo "$(stamp) Tunnel: $url (cloudflared pid $pid)"
+  # One verdict from the loop: a second check right after the first can catch the new tunnel
+  # before it is fully up and report a working tunnel as failed (2026-11-02).
+  local healthy=0
   for _ in $(seq 1 30); do
-    tunnel_ok "$url" && break
+    if tunnel_ok "$url"; then
+      healthy=1
+      break
+    fi
     sleep 1
   done
-  if tunnel_ok "$url"; then
+  if [[ $healthy -eq 1 ]]; then
     echo "$(stamp) Health check through the tunnel: ok"
   else
     echo "$(stamp) Health check through the tunnel failed (DNS may still be propagating)" >&2
