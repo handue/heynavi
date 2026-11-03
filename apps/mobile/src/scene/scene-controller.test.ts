@@ -9,7 +9,7 @@ import type { AskRequest, AskResult } from '../api/ask-response.ts';
 import type { SceneRequest, SceneResult } from '../api/scene-response.ts';
 import { det } from '../agent/test-helpers.ts';
 import { METRICS_TAG } from '../session/metrics.ts';
-import { createSceneController, type SceneDeps } from './scene-controller.ts';
+import { createSceneController, type LastLook, type SceneDeps } from './scene-controller.ts';
 import { sceneItem } from './scene-test-helpers.ts';
 import type { SceneChange, SceneItem } from './types.ts';
 
@@ -226,6 +226,48 @@ describe('scene loop', () => {
     const slow = "The server is slow to answer. I'll keep trying.";
     assert.equal(h.spoken.filter((t) => t === slow).length, 1, 'only the second timeout in a row is spoken');
     assert.ok(h.spoken.indexOf(slow) > h.spoken.indexOf('View 0.'));
+  });
+
+  it('keeps the latest look for the decision panel: Spark items, SAM checks, the decision', async () => {
+    const replies: Reply[] = [
+      { summary: 'A hallway.', change: 'major' },
+      {
+        change: 'minor',
+        items: [
+          sceneItem('box', { kind: 'possible_obstacle', importance: 'high', band: 'lower', detections: [det(0.5, 0.82)] }),
+          // SAM missed it, but Spark puts it in the walking area: still weighed (said hedged).
+          sceneItem('person', { kind: 'person', importance: 'high', grounded: false }),
+          sceneItem('poster', { kind: 'object', importance: 'low', grounded: null }),
+        ],
+      },
+    ];
+    let n = 0;
+    const h = harness((request) => ok(request, replies[Math.min(n++, replies.length - 1)]));
+    assert.equal(h.controller.getSnapshot().lastLook, null);
+    const looks = new Map<number, LastLook>();
+    h.controller.subscribe(() => {
+      const last = h.controller.getSnapshot().lastLook;
+      if (last && !looks.has(last.frame)) looks.set(last.frame, last);
+    });
+    h.controller.start();
+    await until(() => looks.has(1), 'second look');
+    const look = looks.get(1)!;
+    h.controller.shutdown();
+    assert.equal(look.change, 'minor');
+    assert.deepEqual(
+      look.items.map((i) => [i.label, i.sam, i.confidence, i.considered]),
+      [
+        ['box', 'found', 0.82, true],
+        ['person', 'missed', null, true],
+        ['poster', 'unchecked', null, false],
+      ],
+    );
+    assert.equal(look.note, 'item');
+    assert.match(look.said ?? '', /^Possible obstacle: a box/);
+    assert.equal(look.sparkMs, 3000);
+    assert.equal(look.samMs, 600);
+    assert.equal(look.costUsd, 0.004);
+    assert.equal(h.controller.getSnapshot().lastLook, null, 'shutdown clears it');
   });
 
   it('steps verbosity within its range', () => {

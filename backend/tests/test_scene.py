@@ -14,7 +14,10 @@ from fastapi.testclient import TestClient
 from app.images import JPEG_DATA_URL_PREFIX, make_synthetic_jpeg
 from app.main import create_app
 from app.meta.scene import (
+    ROUTE_NEXTS,
     SCENE_SCHEMA,
+    RouteHint,
+    route_note,
     clean_label,
     SceneItem,
     grounding_order,
@@ -132,6 +135,29 @@ def test_detailed_requests_ask_for_more() -> None:
     )
     assert "at most 35 words" in payload["input"][0]["content"][0]["text"]
     assert "asked what is around them" in payload["input"][1]["content"][0]["text"]
+
+
+def test_a_route_note_says_what_matters_more_and_no_place() -> None:
+    def user_text(route: RouteHint | None) -> str:
+        payload = build_scene_request(
+            "data:x", SceneContext(), model="m", reasoning_effort="minimal", max_output_tokens=9, route=route
+        )
+        return payload["input"][1]["content"][0]["text"]
+
+    assert "walking directions" not in user_text(None)
+    left = user_text(RouteHint("left", True))
+    assert "The next turn is to the left, coming up soon." in left
+    assert "crosswalks, curbs and intersections matter more" in left
+    assert "never give directions" in left
+    assert "coming up soon" not in user_text(RouteHint("straight", True))
+    assert "Entrances, doors, steps" in user_text(RouteHint("arrive", False))
+    for nxt in ROUTE_NEXTS:
+        assert route_note(RouteHint(nxt, True)) in user_text(RouteHint(nxt, True))
+    # The fixed instructions do not change with the route, so the prompt cache keeps working.
+    with_route = build_scene_request("data:x", SceneContext(), model="m", reasoning_effort="minimal",
+                                     max_output_tokens=9, route=RouteHint("right", False))
+    without = build_scene_request("data:x", SceneContext(), model="m", reasoning_effort="minimal", max_output_tokens=9)
+    assert with_route["input"][0] == without["input"][0]
 
 
 def test_schema_is_strict_everywhere() -> None:
@@ -281,6 +307,14 @@ def test_route_returns_the_validated_scene(client: TestClient, meta: respx.MockR
     assert "open door (landmark, right, seen 4 s ago, already told the user)" in sent["input"][1]["content"][0]["text"]
 
 
+def test_route_passes_the_route_hint_to_spark(client: TestClient, meta: respx.MockRouter) -> None:
+    route = meta.post("/responses").mock(return_value=httpx.Response(200, json=spark_body(scene_json())))
+    response = client.post("/v1/scene", json=scene_body(route={"next": "right", "soon": True}), headers=AUTH)
+    assert response.status_code == 200, response.text
+    sent = json.loads(route.calls.last.request.content)
+    assert "The next turn is to the right, coming up soon." in sent["input"][1]["content"][0]["text"]
+
+
 def test_route_requires_the_app_token(client: TestClient, meta: respx.MockRouter) -> None:
     route = meta.post("/responses")
     assert_error(client.post("/v1/scene", json=scene_body()), 401, "unauthorized")
@@ -295,6 +329,8 @@ def test_route_requires_the_app_token(client: TestClient, meta: respx.MockRouter
         {"context": {"items": [{"label": "Door!", "kind": "landmark", "position": "right", "age_s": 1, "spoken": False}]}},
         {"context": {"summary": "x" * 301}},
         {"image_b64": "not base64 at all!"},
+        {"route": {"next": "Sejong-daero", "soon": True}},
+        {"route": {"next": "left"}},
     ],
 )
 def test_route_rejects_bad_requests(client: TestClient, meta: respx.MockRouter, overrides: dict[str, Any]) -> None:

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { LatLon } from './geo.ts';
-import { createNavigationController, type LocationPort, type MapsPort, type RouteLine } from './navigation-controller.ts';
+import { createNavigationController, routeHint, type LocationPort, type MapsPort, type NavigationSnapshot, type RouteLine } from './navigation-controller.ts';
 import type { MapKitRoute } from './route.ts';
 import type { Fix } from './route-tracker.ts';
 
@@ -143,6 +143,23 @@ describe('navigation controller', () => {
     assert.equal(h.lines[h.lines.length - 1].key, 'route:ended');
     assert.equal(h.nav.getSnapshot().status, 'idle');
     assert.equal(h.watchingCount(), 0);
+  });
+
+  it('tells the scene look only the kind of the next step and whether it is close', async () => {
+    const h = harness();
+    assert.equal(routeHint(h.nav.getSnapshot()), null, 'no route, no hint');
+    const started = h.nav.start('cafe');
+    await h.settle();
+    await h.fix(offset(0, 0), 8);
+    await started;
+    await h.fix(offset(10, 0));
+    assert.deepEqual(routeHint(h.nav.getSnapshot()), { next: 'right', soon: true });
+    const hint = (next: NavigationSnapshot['next'], gpsWeak = false): ReturnType<typeof routeHint> =>
+      routeHint({ status: 'navigating', destination: 'Near Cafe', next, leftM: 300, gpsWeak });
+    assert.deepEqual(hint({ instruction: 'Turn left onto A St', maneuver: 'sharp-left', inM: 200 }), { next: 'left', soon: false });
+    assert.deepEqual(hint({ instruction: 'Arrive', maneuver: 'arrive', inM: 20 }), { next: 'arrive', soon: true });
+    assert.deepEqual(hint({ instruction: 'Bear right', maneuver: 'slight-right', inM: 20 }, true), { next: 'right', soon: false });
+    assert.equal(JSON.stringify(routeHint(h.nav.getSnapshot())).match(/Cafe|Test-ro|\d{2}\./), null, 'no place, street or position');
   });
 
   it('re-routes after being off the route, at most once every 45 s', async () => {

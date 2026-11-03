@@ -11,6 +11,7 @@ import { Orb } from '@/components/orb';
 import { conceptLabel, phrases } from '@/agent/phrases';
 import { PICTURE_SIZE } from '@/perception/capture';
 import { scenePhrases } from '@/scene/scene-phrases';
+import { AgentPanel } from '@/session/agent-panel';
 import { CaptionCard } from '@/session/caption-card';
 import { CENTER_SIZE, CONTROL_BAR_HEIGHT, ControlBar } from '@/session/control-bar';
 import { DetectionOverlay } from '@/session/detection-overlay';
@@ -186,14 +187,22 @@ export default function SessionScreen() {
         />
       ) : null}
 
-      {settings.devOverlay && permission?.granted ? (
+      {/* The decision panel while observing; SAM timings during a search. */}
+      {settings.devOverlay && permission?.granted && !searching ? (
+        <AgentPanel
+          look={sceneSnapshot.lastLook}
+          remembered={sceneSnapshot.items.length}
+          told={sceneSnapshot.items.filter((i) => i.lastSpokenAt != null).length}
+          style={[styles.panel, { top: insets.top + TOP_BAR_HEIGHT + spacing.sm }]}
+        />
+      ) : null}
+      {settings.devOverlay && permission?.granted && searching ? (
         <LatencyHud
-          model={searching ? 'SAM' : 'Spark'}
-          lastRttMs={searching ? snapshot.lastRttMs : sceneSnapshot.lastRttMs}
-          p50RttMs={searching ? snapshot.p50RttMs : sceneSnapshot.p50RttMs}
-          lastModelMs={searching ? snapshot.lastSamMs : sceneSnapshot.lastSparkMs}
-          frames={searching ? snapshot.frames : sceneSnapshot.calls}
-          note={searching ? undefined : sceneSnapshot.hold?.frame === 'forward' ? 'held forward' : 'camera view'}
+          model="SAM"
+          lastRttMs={snapshot.lastRttMs}
+          p50RttMs={snapshot.p50RttMs}
+          lastModelMs={snapshot.lastSamMs}
+          frames={snapshot.frames}
           style={[styles.hud, { top: insets.top + TOP_BAR_HEIGHT + spacing.md }]}
         />
       ) : null}
@@ -302,6 +311,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.cameraChrome, overflow: 'hidden' },
   camera: { position: 'absolute', backgroundColor: colors.cameraChrome },
   hud: { left: spacing.md, bottom: undefined },
+  panel: { left: spacing.md, right: spacing.md },
   topScrim: { position: 'absolute', left: 0, right: 0, backgroundImage: 'linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 100%)' },
   bottomScrim: { position: 'absolute', left: 0, right: 0, backgroundImage: 'linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.55) 100%)' },
   bottom: { position: 'absolute', left: spacing.md, right: spacing.md, gap: spacing.md },

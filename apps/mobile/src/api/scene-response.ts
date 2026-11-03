@@ -8,6 +8,7 @@ import type {
   SceneContext,
   SceneItem,
   SceneKind,
+  RouteHint,
 } from '../scene/types.ts';
 import { parseDetection, type ApiError } from './detect-response.ts';
 
@@ -21,6 +22,8 @@ export type SceneRequest = {
   detailed: boolean;
   /** How many of Spark's items SAM should locate and check on the same frame (0–4). */
   ground: number;
+  /** The walking route being followed, or null. */
+  route: RouteHint | null;
 };
 
 export type SceneResponse = {
