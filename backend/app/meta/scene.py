@@ -20,6 +20,8 @@ Band = Literal["lower", "middle", "upper"]
 Status = Literal["new", "still", "moved", "gone"]
 Importance = Literal["high", "medium", "low"]
 Change = Literal["none", "minor", "major"]
+# The next step of a walking route the user follows in the app (ARCHITECTURE 8.6).
+RouteNext = Literal["left", "right", "straight", "u-turn", "arrive"]
 
 KINDS: tuple[Kind, ...] = ("object", "possible_obstacle", "level_change", "overhead", "person", "text", "landmark")
 POSITIONS: tuple[Position, ...] = ("left", "center", "right")
@@ -27,6 +29,7 @@ BANDS: tuple[Band, ...] = ("lower", "middle", "upper")
 STATUSES: tuple[Status, ...] = ("new", "still", "moved", "gone")
 IMPORTANCES: tuple[Importance, ...] = ("high", "medium", "low")
 CHANGES: tuple[Change, ...] = ("none", "minor", "major")
+ROUTE_NEXTS: tuple[RouteNext, ...] = ("left", "right", "straight", "u-turn", "arrive")
 
 # Spark's time follows its reasoning, which grows with the items it lists (M4 measurement): the
 # default mode needs only the few most walking-relevant things.
@@ -64,7 +67,7 @@ different, "minor" when something appeared, moved or disappeared, otherwise "non
 list, what could get in the way of someone walking the way the camera points: things on the floor \
 or in the walking area (bags, boxes, chairs and other furniture taking floor space, carts, cables), \
 stairs, steps, curbs and other changes in floor level, low-hanging or protruding things at head or \
-body height, people in the area ahead, and doors or doorways. Do not list things that cannot be in \
+body height, people in the area ahead, doors or doorways, and outdoors crosswalks and intersections. Do not list things that cannot be in \
 the way, such as pictures and wall decorations, screens and televisions, things standing on desks, \
 tables, shelves or counters, windows, lights and ceilings, unless they stick out into the walking \
 area. Report each kind of thing once, with a count.
@@ -74,7 +77,7 @@ spaces only, with no place in it: "bag", "office chair", "steps", "person"; not 
   - kind: "possible_obstacle" for a thing on the floor or in the walking area that someone walking \
 that way could bump into or trip over; "level_change" for stairs, steps, curbs, ramps and \
 drop-offs; "overhead" for low-hanging or protruding things at head or body height; "person"; \
-"landmark" for doors, doorways, entrances and elevators; "text" for a readable sign; "object" for \
+"landmark" for doors, doorways, entrances, elevators, crosswalks and intersections; "text" for a readable sign; "object" for \
 anything else.
   - status: compared with the notes: "new", "still" (same place), "moved", or "gone" (in the notes \
 but no longer visible; list a gone item only if it mattered).
@@ -153,6 +156,39 @@ def context_notes(context: SceneContext) -> str:
     return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class RouteHint:
+    """The next step of the walking route the user follows, if any. Only the kind of step and
+    whether it is close: never a place, a street or a position."""
+
+    next: RouteNext
+    soon: bool
+
+
+_ROUTE_STEP: dict[RouteNext, str] = {
+    "left": "The next turn is to the left",
+    "right": "The next turn is to the right",
+    "straight": "The route goes straight on for now",
+    "u-turn": "The next step is to turn around",
+    "arrive": "The destination is the next step",
+}
+
+
+def route_note(route: RouteHint) -> str:
+    """Tells Spark what matters more while a route is followed. The route instructions come from
+    the map and are spoken separately; Spark's reply stays a description of the photo."""
+    step = _ROUTE_STEP[route.next] + (", coming up soon." if route.soon and route.next != "straight" else ".")
+    matters = (
+        "Entrances, doors, steps and signs with text matter more now."
+        if route.next == "arrive"
+        else "Corners, crosswalks, curbs and intersections matter more now."
+    )
+    return (
+        "The user is following walking directions from a map, which HeyNavi gives separately. "
+        f"{step} {matters} Still report only what you see in this photo, and never give directions."
+    )
+
+
 def build_scene_request(
     image_data_url: str,
     context: SceneContext,
@@ -161,12 +197,18 @@ def build_scene_request(
     reasoning_effort: str,
     max_output_tokens: int,
     detailed: bool = False,
+    route: RouteHint | None = None,
 ) -> dict[str, Any]:
     instructions = INSTRUCTIONS.format(
         summary_words=MAX_SUMMARY_WORDS_DETAILED if detailed else MAX_SUMMARY_WORDS,
         max_items=MAX_ITEMS_DETAILED if detailed else MAX_ITEMS,
     )
-    user_text = context_notes(context) + (f"\n\n{DETAIL_NOTE}" if detailed else "")
+    # Notes that change per frame go after the fixed instructions, so the prompt cache still works.
+    user_text = (
+        context_notes(context)
+        + (f"\n\n{route_note(route)}" if route else "")
+        + (f"\n\n{DETAIL_NOTE}" if detailed else "")
+    )
     return {
         "model": model,
         "input": [

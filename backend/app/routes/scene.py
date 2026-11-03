@@ -43,6 +43,8 @@ from app.meta.scene import (
     Importance,
     Kind,
     Position,
+    RouteHint,
+    RouteNext,
     SceneContext,
     SceneParseError,
     Status,
@@ -83,6 +85,12 @@ class SceneContextIn(BaseModel):
     items: list[ContextItemIn] = Field(default_factory=list, max_length=8)
 
 
+class RouteIn(BaseModel):
+    # Only the kind of the next step and whether it is close: no place, street or position.
+    next: RouteNext
+    soon: bool
+
+
 class SceneRequest(BaseModel):
     image_b64: str = Field(description="Raw base64 JPEG bytes, without a data: prefix")
     session_id: str = Field(pattern=ID_PATTERN)
@@ -92,6 +100,8 @@ class SceneRequest(BaseModel):
     detailed: bool = False
     # How many of Spark's items SAM should locate and check on the same frame (0 = none).
     ground: int = Field(default=0, ge=0, le=MAX_GROUND, strict=True)
+    # The walking route the user follows in the app, if any: Spark weighs crosswalks and corners.
+    route: RouteIn | None = None
 
 
 class SceneItemOut(BaseModel):
@@ -172,6 +182,7 @@ async def scene(
         reasoning_effort=settings.spark_reasoning_effort,
         max_output_tokens=settings.scene_max_output_tokens,
         detailed=body.detailed,
+        route=RouteHint(body.route.next, body.route.soon) if body.route else None,
     )
     spark_started = time.perf_counter()
     try:
@@ -226,11 +237,12 @@ async def scene(
     # Counts and timings only: the summary and labels describe the user's surroundings.
     log.info(
         "scene session=%s frame=%d spark=%.0f ms change=%s items=%d filtered=%d "
-        "tokens in=%s out=%s reasoning=%s sam=%s grounded=%d/%d total=%.0f ms",
+        "tokens in=%s out=%s reasoning=%s sam=%s grounded=%d/%d route=%s total=%.0f ms",
         body.session_id, body.frame_id, spark_ms, parsed.change, len(parsed.items),
         len(parsed.filtered), tokens["input_tokens"], tokens["output_tokens"],
         tokens["reasoning_tokens"], "-" if sam_ms is None else f"{sam_ms:.0f} ms",
-        sum(1 for item in items if item.grounded), len(order), total_ms,
+        sum(1 for item in items if item.grounded), len(order),
+        f"{body.route.next}{':soon' if body.route.soon else ''}" if body.route else "-", total_ms,
     )
     return SceneResponse(
         session_id=body.session_id,

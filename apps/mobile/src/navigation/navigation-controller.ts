@@ -1,3 +1,4 @@
+import type { RouteHint } from '../scene/types.ts';
 import { distanceM, type LatLon } from './geo.ts';
 import { buildRoute, turnCount, type MapKitRoute, type Maneuver, type Route } from './route.ts';
 import { instructionText, routePhrases, startDirection } from './route-phrases.ts';
@@ -44,6 +45,21 @@ export type NavigationSnapshot = {
   leftM: number | null;
   gpsWeak: boolean;
 };
+
+/** A step this close counts as "coming up soon" for the scene look. */
+export const ROUTE_HINT_SOON_M = 60;
+
+/**
+ * What the scene look is told about the route (ARCHITECTURE 8.6): only while navigating, the
+ * kind of the next step and whether it is close. With weak GPS the distance is not trusted.
+ */
+export function routeHint(nav: NavigationSnapshot): RouteHint | null {
+  if (nav.status !== 'navigating' || !nav.next) return null;
+  const m = nav.next.maneuver;
+  const next: RouteHint['next'] =
+    m === 'arrive' || m === 'u-turn' || m === 'straight' ? m : m.endsWith('left') ? 'left' : 'right';
+  return { next, soon: !nav.gpsWeak && nav.next.inM != null && nav.next.inM <= ROUTE_HINT_SOON_M };
+}
 
 export type NavigationController = {
   /** "Navigate to <query>": finds the nearest match on the map and starts a walking route. */

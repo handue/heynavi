@@ -1,6 +1,6 @@
 # HeyNavi — System Architecture
 
-Status (2026-10-30): M0–M4 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays) and natural questions about the surroundings. Navigation is design only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
+Status (2026-11-02): M0–M5 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays), natural questions about the surroundings, the final UI and a release build on cellular. Walking navigation (M6) is implemented and checked indoors; its outdoor walk test is not passed yet. The decision panel (§3.3) and the route hint for Spark (§8) were added on 2026-11-02 and are unit-tested only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
 
 ## 1. Product and design principles
 
@@ -17,7 +17,7 @@ HeyNavi is a **voice-first AI environmental-awareness and navigation companion**
 | 2 | **Grounded Object Detection** (§5) | Supporting: finds and checks the objects that scene understanding picked | `sam-3.1` | Search loop implemented (M1); automatic checks of Spark's objects implemented (M3) |
 | 3 | **Proactive Voice Guidance** (§6) | Decides what is said and when, and lets the user cut it off | the app's announcer | Implemented (M1–M3) |
 | 4 | **Conversational Interaction** (§7) | Natural English questions and commands. Active Object Search is one optional capability | on-device speech recognition, `muse-spark-1.3`, `sam-3.1` | Implemented (M2–M4) |
-| 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Planned (M5, stretch) |
+| 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Implemented (M6); outdoor walk not verified |
 
 Principles:
 
@@ -100,7 +100,8 @@ apps/mobile/src/
                   controller; expo-location adapter                                            [M6]
   perception/     capture.ts (capture queue) [M1]; scheduler.ts [M3]
   session/        camera-session hook (search + scene on one announcer), metrics, overlays,
-                  search strip, session status and last-said caption                           [M1–M3]
+                  search strip, session status and last-said caption [M1–M3]; route card [M6];
+                  decision panel [M7]
   voice/          voice controller, echo gate, command grammar, speaker, speech tracker         [M2]
   api/            typed backend client                                                          [M1]
   feedback/       haptics [M1]; earcons [M3]
@@ -144,7 +145,9 @@ Layout (wireframes 02–04, approved on the iPhone 16e 2026-10-30): the camera p
 
 Everything else is voice: "What's around me", "Find a chair", "Where is the entrance", "quieter", "more detail", "pause", "resume", "repeat", "cancel". Active Object Search keeps its engine (M1–M2) and is started only by voice; the target is whatever noun phrase the user says. Magic Tap: silence speech, else end a search, else pause or resume observing. The VoiceOver escape gesture ends a search and goes back.
 
-Labels and hints are read aloud by VoiceOver and heard by the microphone, so none is a voice command, none starts with "stop", and none contains the wake word (unit-tested). A route card for navigation (M6) will join the caption area only while a route is active.
+6. **Decision panel** (`session/agent-panel.tsx`, off by default; Settings › Advanced › Decision panel): for demos and tuning, the agent loop of the latest look under the top bar. (1) what Muse Spark listed, with its kind and walking relevance; (2) SAM 3.1's check of each item on the same frame (confidence, not found, or not checked) and how long the checks took; (3) what HeyNavi decided: the line it queued, or why it held back (nothing new, spoke moments ago, enough lines this minute, the wording filter). A footer gives the look number, photo-to-decision time, how many things scene memory holds and how many were told, and the look's cost. Items HeyNavi does not weigh for walking are dimmed. VoiceOver reads it as one element that starts with "Decision panel". During a search it is replaced by the SAM latency readout.
+
+Labels and hints are read aloud by VoiceOver and heard by the microphone, so none is a voice command, none starts with "stop", and none contains the wake word (unit-tested). The route card (M6) joins the caption area only while a route is active.
 
 ### 3.4 The HeyNavi symbol
 
@@ -341,7 +344,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 | "quieter" / "fewer updates", "more detail" / "more updates", "updates off", "updates on" | Implemented (M3) |
 | "where is the entrance" and other free-form targets → Active Object Search on that noun phrase | Implemented (M2 grammar, voice only since M3) |
 | Questions: "where is the entrance", "what objects are nearby", "is there a chair here" (§7.2) | Implemented (M4) |
-| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Planned (M6) |
+| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Implemented (M6) |
 
 ### 7.2 Free-form questions (implemented, M4)
 
@@ -355,7 +358,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 
 ## 8. Destination Navigation (M6)
 
-**Implemented (2026-10-30):** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route; the route instruction is not yet passed to Spark (below).
+**Implemented (2026-10-30):** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route, and each look carries a route hint for Spark (below, added 2026-11-02).
 
 
 - **Provider: Apple MapKit on the phone**, through a local Expo module (Swift, about 150 lines):
@@ -371,7 +374,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 - **The route tracker is pure TypeScript and unit-tested.** It:
   - snaps the position to the route line;
   - measures the distance along the route to the next step;
-  - re-requests the route when the user is more than 25 m from it for more than 10 s ("You may be off the route. Recalculating.");
+  - re-requests the route when the user is more than 25 m from it for more than 10 s ("You may be off the route. Recalculating."). After the first outdoor walk, the GPS error is credited first (up to 15 m), a new route gets 20 s of grace, and re-routes are at least 45 s apart;
   - announces arrival within 15 m ("You're near the destination, according to the map").
 - **When route lines are spoken:**
   - at the start (total distance, number of turns, first instruction);
@@ -380,7 +383,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 
   For example: "Route: in about 40 meters, turn right onto Sejong-daero."
 - **GPS check.** Instructions are given only when the reported horizontal accuracy is 20 m or better. Otherwise HeyNavi says "The GPS signal is weak, so I can't place you on the route right now." Distances are rounded to 10 m and always prefixed with "about".
-- **The camera stays on as supplementary context.** The scene track keeps running, and Spark receives the next instruction as text, so it can mention something relevant like a visible crosswalk. Camera lines keep their own wording and are never merged into route lines. HeyNavi never says it is safe to cross or to walk, and never reports traffic-signal state.
+- **The camera stays on as supplementary context.** The scene track keeps running. Each look carries a route hint, `route: {next, soon}`: only the kind of the next step (left, right, straight, u-turn, arrive) and whether it is within about 60 m (never with weak GPS). No street, place or position is sent. Spark is told that corners, crosswalks, curbs and intersections matter more (entrances and doors before arrival), so it can mention something relevant like a visible crosswalk. The note goes after the fixed instructions, so the prompt cache still works. Camera lines keep their own wording and are never merged into route lines. HeyNavi never says it is safe to cross or to walk, and never reports traffic-signal state.
 - **Outdoor prerequisites, needed for any outdoor test:**
   - a release build with the JavaScript bundled in, because Metro isn't reachable over cellular;
   - a backend the phone can reach over cellular (hosted, or a tunnel from the Mac);
@@ -406,7 +409,7 @@ All requests except plain `/health` carry `X-HeyNavi-Token`. Every model respons
 | Endpoint | Request | Response | Model | Timeout | Status |
 |---|---|---|---|---|---|
 | `POST /v1/detect` | `{image_b64, concept, goal_id, frame_id}` | `{goal_id, frame_id, concept, image, detections:[{box, confidence, center_x, area, position}], timings_ms}` | `sam-3.1` (`store:false`) | 4 s | Implemented (M1) |
-| `POST /v1/scene` | `{image_b64, session_id, frame_id, context, detailed, ground}` | §4.2 JSON; each item also `grounded` and SAM `detections` (§5.2); `timings_ms` (spark, sam), `usage` (tokens, SAM images, cost) | `muse-spark-1.3` (`minimal`, strict schema) + up to 4 parallel `sam-3.1` | 12 s + 4 s | Implemented (M3) |
+| `POST /v1/scene` | `{image_b64, session_id, frame_id, context, detailed, ground, route?}` | §4.2 JSON; each item also `grounded` and SAM `detections` (§5.2); `timings_ms` (spark, sam), `usage` (tokens, SAM images, cost) | `muse-spark-1.3` (`minimal`, strict schema) + up to 4 parallel `sam-3.1` | 12 s + 4 s | Implemented (M3) |
 | `POST /v1/ask` | `{image_b64, session_id, question, context, hold}` | `{answer, about: {label, ground, visible, position, band, grounded, detections}, search, timings_ms, usage}` | `muse-spark-1.3` (`minimal`, strict schema) + one `sam-3.1` check | 12 s + 4 s | Implemented (M4) |
 | `POST /v1/metrics` | `{session_id, lines}` (metric lines only; no coordinates) | 204 | — | — | Implemented (M3); the app uploader comes with the release build (M5) |
 | `GET /health` (`?deep=true` needs the token) | — | `{ok, service, version, key_configured}`; deep adds `models_reachable`, `sam_available`, `spark_available` | — | — | Implemented (M0) |
@@ -455,6 +458,7 @@ Proactive camera lines describe what was in view a few seconds earlier. That is 
 - **Questions.** 10 scripted questions, with latency and the tester's judgment.
 - **Navigation.** Logs from the walk: GPS accuracy, every step announced, re-routes.
 - **Cost.** Per active minute, from `usage` and the SAM image count.
+- **Results table.** `cd backend && .venv/bin/python -m scripts.results [files] [--since DATE]` turns the uploaded `var/metrics.jsonl` (or saved Metro logs) into p50/p95 latencies, SAM agreement, lines and cost per minute, stop latency and route events, ready for the README.
 - **Accessibility.** The team completes the core tasks with VoiceOver on and the screen covered. We don't claim testing with blind users.
 
 ## 14. Environments

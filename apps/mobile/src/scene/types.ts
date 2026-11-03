@@ -59,3 +59,10 @@ export type SceneContextItem = {
 };
 
 export type SceneContext = { summary: string | null; items: SceneContextItem[] };
+
+/**
+ * The walking route the user follows, sent with each look so Spark weighs corners, crosswalks
+ * and curbs (ARCHITECTURE 8.6). Only the kind of the next step and whether it is close: never a
+ * place, a street or a position.
+ */
+export type RouteHint = { next: 'left' | 'right' | 'straight' | 'u-turn' | 'arrive'; soon: boolean };

@@ -28,7 +28,7 @@ import type { FrameCapture } from '../session/search-controller.ts';
 import { INITIAL_POLICY, decide, isHazard, mention, walkingRelevant, type DecisionNote, type PolicyState } from './attention-policy.ts';
 import { EMPTY_MEMORY, bandOf, contextFor, expire, markSpoken, mergeReply, pickBox, type MemoryItem, type SceneMemory } from './scene-memory.ts';
 import { scenePhrases } from './scene-phrases.ts';
-import { VERBOSITY_STEPS, type Verbosity } from './types.ts';
+import { VERBOSITY_STEPS, type Importance, type RouteHint, type SceneChange, type SceneKind, type Verbosity } from './types.ts';
 import { unspeakableReason } from './wording.ts';
 
 export const SCENE_LOOP = {
@@ -62,6 +62,8 @@ export type SceneDeps = {
   announcer: Announcer;
   /** How the phone is held right now (sampled when a frame is taken); null without a sensor. */
   hold?(): HoldReading | null;
+  /** The walking route being followed right now, or null (sampled when a frame is sent). */
+  route?(): RouteHint | null;
   /** Monotonic ms (performance.now in the app). */
   now(): number;
   newSessionId(): string;
@@ -75,6 +77,38 @@ export type SceneDeps = {
 
 /** One box on the preview: a SAM-confirmed item from the latest reply. */
 export type SceneBox = { key: string; label: string; detection: Detection; obstacle: boolean };
+
+/** One of Spark's items on the latest look, with SAM's check and whether HeyNavi weighs it. */
+export type LookItem = {
+  label: string;
+  count: number;
+  kind: SceneKind;
+  importance: Importance;
+  /** SAM's check on the same frame. */
+  sam: 'found' | 'missed' | 'unchecked';
+  /** SAM's best box confidence, when it found it. */
+  confidence: number | null;
+  /** Relevant to walking at the current verbosity, so HeyNavi may mention it on its own. */
+  considered: boolean;
+};
+
+/**
+ * The latest look, step by step (Spark saw, SAM checked, HeyNavi decided), for the "how HeyNavi
+ * decides" panel. Labels and the line are scene content: shown on the phone, never uploaded.
+ */
+export type LastLook = {
+  frame: number;
+  change: SceneChange;
+  items: readonly LookItem[];
+  note: DecisionNote;
+  /** The line queued for this look, or null when HeyNavi stayed quiet. */
+  said: string | null;
+  sparkMs: number | null;
+  samMs: number | null;
+  /** From taking the photo to the decision. */
+  totalMs: number;
+  costUsd: number;
+};
 
 export type SceneSnapshot = {
   started: boolean;
@@ -97,6 +131,7 @@ export type SceneSnapshot = {
   costUsd: number;
   failing: ErrorKind | null;
   describing: boolean;
+  lastLook: LastLook | null;
 };
 
 export type SceneController = {
@@ -160,6 +195,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
   let boxes: SceneBox[] = [];
   let boxesFrameAt: number | null = null;
   let lastHold: HoldReading | null = null;
+  let lastLook: LastLook | null = null;
   let loop: AbortController | null = null;
   let oneShot: AbortController | null = null;
   let asking: AbortController | null = null;
@@ -209,6 +245,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       costUsd: round(costUsd, 4),
       failing,
       describing: describePending || oneShot != null,
+      lastLook,
     };
   }
 
@@ -315,6 +352,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       if (signal.aborted) return { ok: false, retryAfterMs: null };
 
       const sentAt = deps.now();
+      const route = deps.route?.() ?? null;
       let result: SceneResult;
       try {
         result = await deps.scene(
@@ -325,6 +363,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
             context: contextFor(memory, sentAt),
             detailed,
             ground: options.ground,
+            route,
           },
           signal,
         );
@@ -379,6 +418,25 @@ export function createSceneController(deps: SceneDeps): SceneController {
 
       calls++;
       const cost = data.usage?.cost_usd ?? 0;
+      lastLook = {
+        frame: frameId,
+        change: data.change,
+        items: data.items.map((i) => ({
+          label: i.label,
+          count: i.count,
+          kind: i.kind,
+          importance: i.importance,
+          sam: i.grounded == null ? 'unchecked' : i.grounded ? 'found' : 'missed',
+          confidence: i.grounded ? (i.detections[0]?.confidence ?? null) : null,
+          considered: mention(i, verbosity) != null,
+        })),
+        note: decision.note,
+        said: decision.announcement?.text ?? null,
+        sparkMs: data.timings_ms?.spark ?? null,
+        samMs: data.timings_ms?.sam ?? null,
+        totalMs: round(receivedAt - frameAt),
+        costUsd: cost,
+      };
       costUsd += cost;
       metrics.push({
         captureMs: frame.captureMs,
@@ -405,6 +463,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
           // Reported but never said on HeyNavi's own initiative (not walking-relevant at this verbosity).
           suppressed: merged.reported.filter((i) => mention(i, verbosity) == null).length,
           hold: hold ? `${hold.frame}:${hold.reason}:${hold.downDeg}` : null,
+          route: route ? `${route.next}${route.soon ? ':soon' : ''}` : null,
           inTok: data.usage?.input_tokens ?? null,
           outTok: data.usage?.output_tokens ?? null,
           reasonTok: data.usage?.reasoning_tokens ?? null,
@@ -683,6 +742,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       memory = EMPTY_MEMORY;
       policy = INITIAL_POLICY;
       lastSummary = null;
+      lastLook = null;
       boxes = [];
       boxesFrameAt = null;
       describePending = false;

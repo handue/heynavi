@@ -114,8 +114,8 @@ export default function SettingsScreen() {
             ) : null}
             <SettingsRow
               icon="speedometer"
-              title="Developer overlay"
-              subtitle="Timings over the camera"
+              title="Decision panel"
+              subtitle="What Spark saw, what SAM checked, and why"
               toggle={{ value: settings.devOverlay, onChange: (devOverlay) => updateSettings({ devOverlay }) }}
             />
             <SettingsRow icon="stethoscope" title="Device diagnostics" last onPress={() => router.push('/diagnostics')} />

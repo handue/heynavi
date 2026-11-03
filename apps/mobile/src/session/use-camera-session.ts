@@ -12,7 +12,7 @@ import { askQuestion, describeScene, detect, postMetrics } from '@/api/client';
 import { playHaptic } from '@/feedback/haptics';
 import { HeynaviMaps } from '../../modules/heynavi-maps';
 import { createExpoLocationPort } from '@/navigation/expo-location-port';
-import { createNavigationController, type NavigationController } from '@/navigation/navigation-controller';
+import { createNavigationController, routeHint, type NavigationController } from '@/navigation/navigation-controller';
 import { SCENE_CAPTURE, SESSION_CAPTURE, captureFrame, type CaptureOptions } from '@/perception/capture';
 import { IDENTITY, turnAngle, type Quaternion } from '@/perception/motion';
 import { createOrientationSampler, type OrientationSampler } from '@/perception/orientation-sampler';
@@ -134,6 +134,8 @@ function createSession(onDetach: () => void): Session {
     ask: (request, signal) => askQuestion(request, { signal }),
     announcer,
     hold: () => orientation.current(),
+    // While a route is followed, Spark weighs corners and crosswalks (no place or street is sent).
+    route: () => routeHint(nav.getSnapshot()),
     now,
     newSessionId: () => uuid.v4(),
     log,
