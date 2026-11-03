@@ -13,7 +13,7 @@ import { PICTURE_SIZE } from '@/perception/capture';
 import { scenePhrases } from '@/scene/scene-phrases';
 import { AgentPanel } from '@/session/agent-panel';
 import { CaptionCard } from '@/session/caption-card';
-import { CENTER_SIZE, CONTROL_BAR_HEIGHT, ControlBar } from '@/session/control-bar';
+import { CENTER_SYMBOL_SIZE, CONTROL_BAR_HEIGHT, ControlBar } from '@/session/control-bar';
 import { DetectionOverlay } from '@/session/detection-overlay';
 import { LatencyHud } from '@/session/latency-hud';
 import { RouteCard } from '@/session/route-card';
@@ -244,7 +244,7 @@ export default function SessionScreen() {
               hint: sceneUi.describeHint,
               disabled: !canSearch,
               onPress: describe,
-              content: <Orb size={CENTER_SIZE} mode={speaking ? 'speaking' : thinking ? 'thinking' : listening ? 'listening' : 'idle'} />,
+              content: <Orb size={CENTER_SYMBOL_SIZE} mode={speaking ? 'speaking' : thinking ? 'thinking' : listening ? 'listening' : 'idle'} />,
             }}
             right={{
               icon: listening ? 'mic.fill' : 'mic.slash.fill',

@@ -48,7 +48,7 @@ export default function HomeScreen() {
 
         <View style={styles.middle}>
           <View style={styles.hero}>
-            {/* The jelly fills about two thirds of its canvas; the rest is its glow. */}
+            {/* The orb fills about 60% of its canvas; the rest is its halo. */}
             <View style={styles.symbol}>
               <Orb size={168} />
             </View>

@@ -4,14 +4,14 @@ import { useEffect } from 'react';
 import { View } from 'react-native';
 import { useDerivedValue, useFrameCallback, useReducedMotion, useSharedValue } from 'react-native-reanimated';
 
-import { DRIVE, LOOP_SECONDS, STILL_PHASE, advancePhase, ease, jellyUniforms, type JellyState, type OrbMode } from '@/components/jelly-motion';
-import { JELLY_SKSL } from '@/components/jelly-shader';
+import { DRIVE, LOOP_SECONDS, STILL_PHASE, advancePhase, ease, orbUniforms, type OrbMode, type OrbState } from '@/components/orb-motion';
+import { ORB_SKSL } from '@/components/orb-shader';
 import { micLevelValue } from '@/voice/mic-level';
 
-export type { OrbMode } from '@/components/jelly-motion';
+export type { OrbMode } from '@/components/orb-motion';
 
 function compile() {
-  const effect = Skia.RuntimeEffect.Make(JELLY_SKSL);
+  const effect = Skia.RuntimeEffect.Make(ORB_SKSL);
   if (!effect) throw new Error('The HeyNavi symbol shader did not compile.');
   return effect;
 }
@@ -23,13 +23,14 @@ const MEASURE = __DEV__;
 const PERF_INTERVAL_MS = 10_000;
 
 /**
- * The HeyNavi symbol (wireframes 01, 02 and 09): a living, translucent blue jelly, drawn by a
- * GPU shader (jelly-shader.ts) and moved each frame on the UI thread (jelly-motion.ts). It turns
- * slowly through a full 3D rotation while its folded lobes drift, twist and wobble.
+ * The HeyNavi symbol (wireframes 01, 02 and 09): a living frosted glass orb with two eyes and a
+ * blue glow, drawn by a GPU shader (orb-shader.ts) and moved each frame on the UI thread
+ * (orb-motion.ts). It floats and breathes while its eyes glance around and blink.
  *
- * - idle: slow and calm.
- * - listening: a little livelier, with a ripple that follows the microphone level.
- * - thinking (an answer is on its way): the lobes flow more.
+ * - idle: slow and calm, glancing side to side.
+ * - listening: eyes straight ahead on the user, with a ripple and glow that follow the microphone
+ *   level.
+ * - thinking (an answer is on its way): eyes look up, the outline moves more.
  * - speaking: livelier, with a gentle swell.
  *
  * Mode changes ease in, so the motion never jumps. It only runs while its screen is focused (the
@@ -42,7 +43,7 @@ export function Orb({ size = 120, mode = 'idle' }: { size?: number; mode?: OrbMo
   const target = useSharedValue(DRIVE[mode]);
   const listening = useSharedValue(mode === 'listening');
   const speed = useSharedValue(DRIVE[mode].speed);
-  const state = useSharedValue<JellyState>({ phase: STILL_PHASE, pulse: 0, ...DRIVE[mode] });
+  const state = useSharedValue<OrbState>({ phase: STILL_PHASE, pulse: 0, ...DRIVE[mode] });
   const perf = useSharedValue({ frames: 0, slow: 0, worstMs: 0 });
 
   useEffect(() => {
@@ -63,6 +64,8 @@ export function Orb({ size = 120, mode = 'idle' }: { size?: number; mode?: OrbMo
       energy: ease(now.energy, goal.energy, dt, 0.6),
       ripple: ease(now.ripple, ripple, dt, 0.25),
       swell: ease(now.swell, goal.swell, dt, 0.4),
+      up: ease(now.up, goal.up, dt, 0.5),
+      attend: ease(now.attend, goal.attend, dt, 0.4),
     };
     if (MEASURE && info.timeSincePreviousFrame != null) {
       const p = perf.value;
@@ -93,7 +96,7 @@ export function Orb({ size = 120, mode = 'idle' }: { size?: number; mode?: OrbMo
     return () => clearInterval(timer);
   }, [animate, perf, size]);
 
-  const uniforms = useDerivedValue(() => jellyUniforms(state.value, size));
+  const uniforms = useDerivedValue(() => orbUniforms(state.value, size));
 
   return (
     <View

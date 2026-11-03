@@ -18,8 +18,13 @@ type Control = {
 
 type Props = { left: Control; center: Control & { content: ReactNode }; right: Control };
 
-/** The center button's diameter: the HeyNavi symbol is drawn at this size inside it. */
+/** The center button's diameter. */
 export const CENTER_SIZE = 84;
+/**
+ * The HeyNavi symbol's canvas in the center button, larger than the button: the orb then fills
+ * about three quarters of the white disc, and its halo spills past the edge into the button's glow.
+ */
+export const CENTER_SYMBOL_SIZE = 108;
 const SIDE_SIZE = 56;
 const CAPTION_HEIGHT = 18;
 
