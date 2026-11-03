@@ -464,7 +464,7 @@ Proactive camera lines describe what was in view a few seconds earlier. That is 
 ## 14. Environments
 
 - **Development.** `uvicorn --host 0.0.0.0` on the Mac, with the iPhone on the same Wi-Fi and Metro serving the dev build.
-- **Outdoors and demo.** A release build, plus a backend reachable over cellular: a small hosted instance (Render or Fly.io) or a Cloudflare quick tunnel from the Mac. The choice is made in M5.
+- **Outdoors and demo.** A release build, plus a backend reachable over cellular: a Cloudflare quick tunnel from the Mac (`backend/scripts/start-tunnel.sh`, chosen in M5). Quick tunnels have no uptime promise: on 2026-11-02 one lost its address after about two days while cloudflared kept running. The script now checks `/health` through the tunnel every 30 s (resolved with public DNS) and, when cloudflared has exited or 3 checks in a row fail while the backend answers, starts a new tunnel and sends the new address to the iPhone, retrying until the phone takes it. Tested by freezing and by killing cloudflared (new tunnel healthy 24 s and 8 s later). The hand-off needs the phone unlocked and reachable from the Mac, so a tunnel lost during an outdoor walk cannot be recovered until the phone is back; the app then shows its Server screen ("Back to the home screen" returns).
 - **Builds.** `apps/mobile/scripts/build-ios-device.sh` with a free Personal Team. The profile expires 2026-11-05 11:10 PST, so rebuild before the Nov 9 live final.
 
 ## 15. Future enhancements
