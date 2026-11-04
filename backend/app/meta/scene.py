@@ -32,8 +32,9 @@ CHANGES: tuple[Change, ...] = ("none", "minor", "major")
 ROUTE_NEXTS: tuple[RouteNext, ...] = ("left", "right", "straight", "u-turn", "arrive")
 
 # Spark's time follows its reasoning, which grows with the items it lists (M4 measurement): the
-# default mode needs only the few most walking-relevant things.
-MAX_ITEMS = 3
+# default mode needs only the few most walking-relevant things. 2 since 2026-11-03: Spark's time per
+# output token doubled from Nov 2 (6 -> 12 ms), so a shorter reply keeps a look near 5 s.
+MAX_ITEMS = 2
 MAX_ITEMS_DETAILED = 6
 MAX_RAW_ITEMS = 12
 MAX_SUMMARY_WORDS = 15
