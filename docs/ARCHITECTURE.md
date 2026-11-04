@@ -1,6 +1,6 @@
 # HeyNavi — System Architecture
 
-> **Scope (2026-11-03):** walking navigation to a destination (§8, `src/navigation`, the `heynavi-maps` module) is an early prototype in the code and is not part of the demo. It is a possible future direction.
+> **Scope (2026-11-03):** walking navigation to a destination (§8, `src/navigation`, the `heynavi-maps` module) is not part of the demo; it is a possible future direction.
 
 Status (2026-11-02): M0–M5 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays), natural questions about the surroundings, the final UI and a release build on cellular. The decision panel (§3.3) was added on 2026-11-02; it is unit-tested, and its check on the phone is listed in PLAN §0.1 (D1), with the other items not yet checked on the phone (D5). Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
 
@@ -19,7 +19,7 @@ HeyNavi is a **voice-first AI environmental-awareness companion** for blind and 
 | 2 | **Grounded Object Detection** (§5) | Supporting: finds and checks the objects that scene understanding picked | `sam-3.1` | Search loop implemented (M1); automatic checks of Spark's objects implemented (M3) |
 | 3 | **Proactive Voice Guidance** (§6) | Decides what is said and when, and lets the user cut it off | the app's announcer | Implemented (M1–M3) |
 | 4 | **Conversational Interaction** (§7) | Natural English questions and commands. Active Object Search is one optional capability | on-device speech recognition, `muse-spark-1.3`, `sam-3.1` | Implemented (M2–M4) |
-| 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Prototype; not part of the demo (future direction) |
+| 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Future direction; not part of the demo |
 
 Principles:
 
@@ -348,7 +348,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 | "quieter" / "fewer updates", "more detail" / "more updates", "updates off", "updates on" | Implemented (M3) |
 | "where is the entrance" and other free-form targets → Active Object Search on that noun phrase | Implemented (M2 grammar, voice only since M3) |
 | Questions: "where is the entrance", "what objects are nearby", "is there a chair here" (§7.2) | Implemented (M4) |
-| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Prototype (M6), not part of the demo |
+| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Future direction (M6), not part of the demo |
 
 ### 7.2 Free-form questions (implemented, M4)
 
@@ -360,9 +360,9 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 - **Over HeyNavi's speech.** Questions are accepted while HeyNavi talks, and picked out of its echo when said just before or after its words, but not if they repeat a content word HeyNavi just said.
 - **Limitations.** Without a wake phrase, a question asked by someone nearby is answered too. Misrecognitions become wrong questions ("where is the door" heard as "where is the war").
 
-## 8. Destination Navigation (prototype, future direction)
+## 8. Destination Navigation (future direction)
 
-**Prototype code (2026-10-30), not part of the demo:** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route, and each look carries a route hint for Spark (below, added 2026-11-02).
+**Code from 2026-10-30, not part of the demo:** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route, and each look carries a route hint for Spark (below, added 2026-11-02).
 
 
 - **Provider: Apple MapKit on the phone**, through a local Expo module (Swift, about 150 lines):
@@ -481,6 +481,6 @@ Proactive camera lines describe what was in view a few seconds earlier. That is 
 
   Korean is the first candidate. Muse Voice Transcribe supports 25 languages with code-switching, which is an option where Apple has no on-device recognizer.
 - **Questions through Muse Voice Transcribe**, as push-to-talk.
-- **Walking navigation to a destination**, built on the §8 prototype, with haptic route cues and local pedestrian data.
+- **Walking navigation to a destination** (§8), with haptic route cues and local pedestrian data.
 - **Tracking verified objects between Spark calls**, so HeyNavi can say "the chair is now on your left" at SAM speed.
 - **Open-weight models** for scene understanding and grounding.

@@ -187,7 +187,7 @@ SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the l
 - **Misrecognitions that became wrong questions:** "where is the door" heard as "where is the war"; "what objects are nearby" heard as "… what projector nearby", which started a search for a projector. Searches now start only from "where" questions.
 - **Latency:** scene frame-to-speech p50 4.95 s / p95 7.5 s (M3 final: 5.7 s / 6.8 s), with 640 px frames, at most 3 items and SAM checks capped at 1.5 s. Spark p50 3.2 s / p95 5.1 s; its time follows its output (330–1,030 tokens, mostly reasoning), so the p95 tail comes from occasional long replies. Measured beforehand on stock photos: 640 px took a median 2.3 s against 3.2 s at 768 px; `prompt_cache_key` added nothing, because Meta already caches the instructions (1,009 of ~1,800 input tokens cached).
 
-## 8. Walking routes (prototype, future direction)
+## 8. Walking routes (future direction)
 
 Checked 2026-10-29 from the development Mac; details and sources in [research/routing.md](research/routing.md).
 
