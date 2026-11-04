@@ -27,3 +27,6 @@ backend/bench/results/*
 
 # OS / editors
 .DS_Store
+
+# Demo video footage and renders (large, not source)
+recordings/

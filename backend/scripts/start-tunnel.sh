@@ -27,6 +27,7 @@ fails_to_restart=3
 log="$(mktemp -t heynavi-tunnel)"
 pid=""
 url=""
+healthy=0
 trap 'stop_tunnel; rm -f "$log"' EXIT
 trap 'exit 130' INT TERM
 
@@ -62,7 +63,9 @@ start_tunnel() {
   pid=$!
   url=""
   for _ in $(seq 1 60); do
-    url="$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -1 || true)"
+    # A quick tunnel's name is hyphenated words. Error lines also mention https://api.trycloudflare.com,
+    # which is not a tunnel: on a network that blocks the tunnel it was taken as the address (2026-11-03).
+    url="$(grep -Eo 'https://[a-z0-9]+(-[a-z0-9]+)+\.trycloudflare\.com' "$log" | head -1 || true)"
     [[ -n "$url" ]] && break
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
@@ -75,8 +78,9 @@ start_tunnel() {
   fi
   echo "$(stamp) Tunnel: $url (cloudflared pid $pid)"
   # One verdict from the loop: a second check right after the first can catch the new tunnel
-  # before it is fully up and report a working tunnel as failed (2026-11-02).
-  local healthy=0
+  # before it is fully up and report a working tunnel as failed (2026-11-02). Only a healthy
+  # address is sent to the iPhone; otherwise the watch loop sends it once it answers.
+  healthy=0
   for _ in $(seq 1 30); do
     if tunnel_ok "$url"; then
       healthy=1
@@ -110,7 +114,7 @@ send_to_phone() {
 
 start_tunnel || exit 1
 sent=0
-if send_to_phone; then sent=1; fi
+if [[ $healthy -eq 1 ]] && send_to_phone; then sent=1; fi
 echo "$(stamp) Tunnel running, checked every ${check_every} s. Ctrl-C to stop."
 
 fails=0
@@ -140,5 +144,5 @@ while true; do
   stop_tunnel
   fails=0
   sent=0
-  if start_tunnel && send_to_phone; then sent=1; fi
+  if start_tunnel && [[ $healthy -eq 1 ]] && send_to_phone; then sent=1; fi
 done
