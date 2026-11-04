@@ -221,13 +221,14 @@ def test_drops_bad_items_and_sentences_but_keeps_the_rest() -> None:
         )
     )
     assert parsed.summary is None
-    assert [i.label for i in parsed.items] == ["open door", "sign"]
+    assert [i.label for i in parsed.items] == ["open door", "sign", "poster"]
     assert parsed.filtered == [
         "summary_distance",
         "invalid_label",
         "label_safety",
         "invalid_enum",
-    ]  # the second valid item fills the list (MAX_ITEMS = 2), so the rest is never looked at
+        "text_filtered",
+    ]  # the third valid item fills the list, so the rest is never looked at
 
 
 def test_text_items_keep_verbatim_text_unless_it_breaks_the_rules() -> None:
@@ -238,8 +239,7 @@ def test_text_items_keep_verbatim_text_unless_it_breaks_the_rules() -> None:
                 item(label="poster", kind="text", text="Safe zone", ground=""),
                 item(label="crate", count=0, ground="Box!!"),
             ]
-        ),
-        detailed=True,  # room for all three
+        )
     )
     by_label = {i.label: i for i in parsed.items}
     assert by_label["sign"].text == "EXIT" and by_label["sign"].ground is None
@@ -250,7 +250,7 @@ def test_text_items_keep_verbatim_text_unless_it_breaks_the_rules() -> None:
 
 def test_caps_items_and_counts() -> None:
     many = [item(label=f"thing {chr(97 + i)}", count=99) for i in range(9)]
-    assert len(parse_scene_output(scene_json(items=many)).items) == 2
+    assert len(parse_scene_output(scene_json(items=many)).items) == 3
     detailed = parse_scene_output(scene_json(items=many), detailed=True)
     assert len(detailed.items) == 6
     assert detailed.items[0].count == 20
@@ -449,7 +449,7 @@ def test_route_checks_the_top_items_with_sam_on_the_same_frame(meta: respx.MockR
 
     meta.post("/responses").mock(side_effect=respond)
     with app_client() as c:
-        body = c.post("/v1/scene", json=scene_body(ground=3, detailed=True), headers=AUTH).json()
+        body = c.post("/v1/scene", json=scene_body(ground=3), headers=AUTH).json()
     assert sorted(seen) == ["chair", "desk", "unicorn"]
     by_label = {i["label"]: i for i in body["items"]}
     chair = by_label["office chair"]
@@ -459,7 +459,7 @@ def test_route_checks_the_top_items_with_sam_on_the_same_frame(meta: respx.MockR
     assert by_label["desk"]["grounded"] is False  # seen, but below 0.5
     assert len(by_label["desk"]["detections"]) == 1
     assert by_label["unicorn"]["grounded"] is False and by_label["unicorn"]["detections"] == []
-    assert by_label["lamp"]["grounded"] is None  # a plain object is not checked
+    assert "lamp" not in by_label  # a fourth item is beyond the 3-item cap
     assert body["usage"]["sam_images"] == 3
     assert body["usage"]["cost_usd"] == pytest.approx(1600 * 1.25e-6 + 500 * 4.25e-6 + 3 * 0.0025, abs=1e-6)
     assert body["timings_ms"]["sam"] is not None
