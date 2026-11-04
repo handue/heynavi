@@ -20,7 +20,7 @@ describe('settings', () => {
 
   it('accepts only plain http(s) backend URLs', () => {
     assert.equal(cleanApiUrl('https://abc-def.trycloudflare.com/'), 'https://abc-def.trycloudflare.com');
-    assert.equal(cleanApiUrl('http://192.168.1.7:8000'), 'http://192.168.1.7:8000');
+    assert.equal(cleanApiUrl('http://192.168.1.23:8000'), 'http://192.168.1.23:8000');
     for (const bad of ['javascript:alert(1)', 'ftp://x.y', 'https://x.y?token=1', 'https://', 42, null]) {
       assert.equal(cleanApiUrl(bad), null, String(bad));
     }

@@ -2,21 +2,17 @@
 
 FastAPI service between the HeyNavi app and the Meta Model API (`sam-3.1`, `muse-spark-1.3`). The Meta key lives only here, never in the app.
 
-Status: **M1** (2026-10-29). There is a Meta client, a SAM 3.1 request builder and box parser, a Muse Spark probe, `GET /health`, `POST /v1/detect` (section 4), and the Day-0 benchmark.
+Routes: `GET /health`, `POST /v1/detect` (SAM 3.1 object search, section 4), `POST /v1/scene` (Muse Spark scene look plus SAM 3.1 checks), `POST /v1/ask` (questions about the view) and `POST /v1/metrics` (the app's timing lines). Sections 1–6, Privacy and Layout were written at milestone M1 (2026-10-29) and cover `/health`, `/v1/detect` and the benchmark; the other routes are described in [docs/ARCHITECTURE.md §10](../docs/ARCHITECTURE.md#10-backend-api-contract).
 
-All commands below run from this `backend/` folder:
-
-```sh
-cd ~/heynavi/backend
-```
+All commands below run from this `backend/` folder (from the repo root: `cd backend`).
 
 ## 1. Setup
 
-Requires Python 3.12 or newer (developed on 3.14.7).
+Requires Python 3.12 or newer (developed on 3.14.7). macOS's own `/usr/bin/python3` is 3.9, so use a newer `python3.X` (for example `python3.12` from Homebrew); check with `python3 --version`.
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+python3.12 -m venv .venv   # or any python3.X of 3.12 or newer
+.venv/bin/pip install -c constraints.txt -e '.[dev]'
 ```
 
 ## 2. Put your Meta API key in `backend/.env`

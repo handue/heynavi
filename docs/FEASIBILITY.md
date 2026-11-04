@@ -1,6 +1,6 @@
 # HeyNavi — Feasibility Findings
 
-Researched 2026-10-29 by five independent research passes, each followed by an adversarial fact-check against primary sources. Nothing here has been tested with our own API key or iPhone yet; the [Day-0 gates](#7-day-0-gates-must-be-measured-by-us) list what we still have to measure ourselves.
+Researched 2026-10-29 by five AI research passes (Claude Code); four of them (all but the hackathon-rules pass) were followed by an adversarial fact-check against primary sources, also run by an AI agent. Sections 1–6 are that research; §7 onward records what we then measured ourselves with our own API key and iPhone.
 
 Status legend:
 
@@ -117,7 +117,7 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 - **G7: pass.** An Expo SDK 58 dev build compiled with Xcode 27.1 on macOS 27.2 and installed on an iPhone 16e running iOS 26.6.2, using a free Personal Team. Installing needed sequential code signing; see `apps/mobile/scripts/build-ios-device.sh`.
 - **G8: credits applied** (reported by the team). Meta documents no API for reading credit balance or per-request cost. Each SAM response reports `usage.images_processed: 1`, the per-image billing unit. The deduction itself shows only on the dev.meta.ai billing page.
 
-**Meta API results, measured 2026-10-29** with our key, from the Mac to `api.meta.ai` over home Internet, using `scripts.bench --synthetic`:
+**Meta API results, measured 2026-10-29** with our key, from the Mac to `api.meta.ai` over an ordinary broadband connection, using `scripts.bench --synthetic`:
 
 | Gate | Result |
 |---|---|
@@ -134,7 +134,7 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 - **G5 shutter sound: pass.** iPhone 16e with Silent Mode on: no shutter click during the M1 search loop, which uses `takePictureAsync({shutterSound:false})` about once per second. The VisionCamera fallback is not needed.
 - **G6 on-device speech recognition: pass (en-US).** iPhone 16e, Airplane Mode on and Wi-Fi off: the diagnostics screen's English recognition test transcribed a spoken sentence (reported by the tester; the Mac cannot see logs while the phone is offline). The app sets `requiresOnDeviceRecognition: true`.
 
-**First live run of the M1 search loop, 2026-10-29.** iPhone 16e on home Wi-Fi to the backend on the Mac, then to `sam-3.1`. Two sessions, 30 frames, 0 failures. Medians per frame from the app's `[heynavi-metrics]` log:
+**First live run of the M1 search loop, 2026-10-29.** iPhone 16e on Wi-Fi to the backend on the Mac, then to `sam-3.1`. Two sessions, 30 frames, 0 failures. Medians per frame from the app's `[heynavi-metrics]` log:
 
 | Stage | Median (p50) | 95th percentile (p95) |
 |---|---|---|
@@ -146,7 +146,7 @@ Used only if `sam-3.1` on the Meta API fails our Day-0 gate:
 
 SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the last 3 frames to agree, so the chair is announced about 2.5–3 s after it enters the view.
 
-**M2 on the iPhone 16e, 2026-10-29: voice commands and the VS-1 acceptance checks.** Dev build, loudspeaker (no earbuds), home Wi-Fi. Numbers come from the app's `[heynavi-metrics]` / `[heynavi-voice]` Metro log unless marked as reported by the tester.
+**M2 on the iPhone 16e, 2026-10-29: voice commands and the VS-1 acceptance checks.** Dev build, loudspeaker (no earbuds), Wi-Fi. Numbers come from the app's `[heynavi-metrics]` / `[heynavi-voice]` Metro log unless marked as reported by the tester.
 
 | VS-1 check | Result |
 |---|---|
@@ -162,7 +162,7 @@ SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the l
 - **The mic also hears VoiceOver** reading the screen ("status ready", "page one of two"). None of it parsed as a command. The echo gate only knows HeyNavi's own speech, so spoken labels and hints must keep avoiding command words (a unit test checks them).
 - **Not verified yet:** auto-lock while idle on a release build (dev builds keep the screen awake), and recovery after a phone call or Siri interruption.
 
-**M3 on the iPhone 16e, 2026-10-30: automatic walking-obstacle awareness.** Dev build, home Wi-Fi, five rounds walking through an apartment. Numbers come from the app's `[heynavi-metrics]` / `[heynavi-scene]` Metro log.
+**M3 on the iPhone 16e, 2026-10-30: automatic walking-obstacle awareness.** Dev build, Wi-Fi, five indoor test rounds. Numbers come from the app's `[heynavi-metrics]` / `[heynavi-scene]` Metro log.
 
 | Round | What changed before it | Result |
 |---|---|---|
@@ -187,7 +187,7 @@ SAM confidence on the real chair: median 0.97–0.98. A "found" needs 2 of the l
 - **Misrecognitions that became wrong questions:** "where is the door" heard as "where is the war"; "what objects are nearby" heard as "… what projector nearby", which started a search for a projector. Searches now start only from "where" questions.
 - **Latency:** scene frame-to-speech p50 4.95 s / p95 7.5 s (M3 final: 5.7 s / 6.8 s), with 640 px frames, at most 3 items and SAM checks capped at 1.5 s. Spark p50 3.2 s / p95 5.1 s; its time follows its output (330–1,030 tokens, mostly reasoning), so the p95 tail comes from occasional long replies. Measured beforehand on stock photos: 640 px took a median 2.3 s against 3.2 s at 768 px; `prompt_cache_key` added nothing, because Meta already caches the instructions (1,009 of ~1,800 input tokens cached).
 
-## 8. Walking routes (navigation milestone)
+## 8. Walking routes (prototype, future direction)
 
 Checked 2026-10-29 from the development Mac; details and sources in [research/routing.md](research/routing.md).
 

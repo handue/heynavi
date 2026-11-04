@@ -1,9 +1,13 @@
 # HeyNavi — Execution Plan
 
-As of **Thu 2026-10-29**, revised the same day after the product vision changed (see [ARCHITECTURE.md §1](ARCHITECTURE.md)). This plan replaces the earlier search-first roadmap. **Updated 2026-11-02:** M0–M5 done; M6 implemented with its outdoor walk deferred; development for the demo finished (feature freeze), device checks pending (§0.1). **2026-11-03:** an outdoor walk partly verified D2 and found two bugs, fixed (§0.1); D4 still to walk.
+> Working plan from the build period (Oct 29 – Nov 4), kept as a record. Sections addressed to "you" were notes between the developer and the AI coding assistant. The README and ARCHITECTURE.md describe the app as it is.
 
-- Hard deadline: **Wed Nov 4, 9:00 PM ET** (Nov 5, 11:00 KST).
-- Internal deadline: **Nov 4, 12:00 PM ET** (Nov 5, 02:00 KST), leaving 9 hours of buffer.
+> **Scope (2026-11-03):** walking navigation to a destination (milestone M6, [ARCHITECTURE §8](ARCHITECTURE.md), `src/navigation`, the `heynavi-maps` module) is an early prototype in the code and is not part of the demo. It is a possible future direction.
+
+As of **Thu 2026-10-29**, revised the same day after the product vision changed (see [ARCHITECTURE.md §1](ARCHITECTURE.md)). This plan replaces the earlier search-first roadmap. **Updated 2026-11-02:** M0–M5 done; M6 implemented with its outdoor walk deferred; development for the demo finished (feature freeze), device checks pending (§0.1). **2026-11-03:** an outdoor walk partly verified D2 and found two bugs, fixed (§0.1). D2 and D4 (walking navigation) are outside the demo scope (see the note above).
+
+- Hard deadline: **Wed Nov 4, 9:00 PM ET**.
+- Internal deadline: **Nov 4, 12:00 PM ET**, leaving 9 hours of buffer.
 - Working days left: Oct 30, Oct 31, Nov 1, Nov 2, Nov 3, and the morning of Nov 4.
 
 Every status here is one of: **Implemented & tested**, **Implemented, not verified**, **Planned**, **Blocked**.

@@ -32,7 +32,7 @@ I found the official sources. Meta's event page is dev.meta.ai/events/global-hac
 - Every team member should claim their own $150 Meta Model API credits before Nov 4 9 PM ET and set a spend limit. The rules say the credits are valid for a 10-day window.
 - Do not count on partner credits.
 
-9. Submit well before Nov 4 9:00 PM ET (2026-11-05 02:00 UTC, Nov 5 11:00 KST). Do not rely on the platform's undocumented 6-hour grace field.
+9. Submit well before Nov 4 9:00 PM ET (2026-11-05 02:00 UTC). Do not rely on the platform's undocumented 6-hour grace field.
 
 ## RISKS
 - Anti-project exposure: 'Simple Image Analyzers' (reported list) could catch HeyNavi if the demo looks like describing photos or reading text. The pass/fail gate reportedly disqualifies before any scoring.

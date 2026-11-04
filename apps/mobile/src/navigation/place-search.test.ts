@@ -24,7 +24,7 @@ function maps(table: Record<string, FoundPlace[]>) {
   };
 }
 
-describe('place search near the user (campus test, 2026-11-03)', () => {
+describe('place search near the user (outdoor test, 2026-11-03)', () => {
   it('takes the best name match for what was said, then the nearest', async () => {
     const m = maps({ 'science library': [at('Main Library', 200), at('Science Library', 600), at('Science Library', 9000)] });
     const found = await findPlace('science library', HERE, 5000, m.search);

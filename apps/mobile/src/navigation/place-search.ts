@@ -1,7 +1,7 @@
 import { distanceM, type LatLon } from './geo.ts';
 
 /**
- * Finding the place the user asked for, near them. On the 2026-11-03 campus test, 16 of 20
+ * Finding the place the user asked for, near them. On the 2026-11-03 outdoor test, 16 of 20
  * "navigate to …" searches failed: MapKit returned only places with that name more than 5 km away,
  * or nothing. Now, within a walk:
  * 1. the results for what was said whose names match it best (then the nearest);
