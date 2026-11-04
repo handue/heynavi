@@ -117,7 +117,7 @@ def _session_totals(summaries: list[Metric]) -> dict[str, float]:
 
 
 def _add_run(totals: Counter[str], fields: dict[str, Any]) -> None:
-    for key in ("calls", "failures", "lines", "activeMin", "costUsd"):
+    for key in ("calls", "failures", "lines", "expired", "activeMin", "costUsd"):
         value = fields.get(key)
         if isinstance(value, (int, float)):
             totals[key] += value
@@ -161,7 +161,10 @@ def summarize(metrics: list[Metric]) -> Results:
                 found, checked = found + int(a), checked + int(b)
     totals = _session_totals(by_reason.get("scene-summary", []))
     notes = Counter(str(m.fields.get("note")) for m in scene)
-    spoken = sum(n for note, n in notes.items() if note in {"first-look", "summary", "item", "describe"})
+    # A line that expired in the queue unheard (behind a route line) was decided but never said.
+    expired = len(by_reason.get("scene-expired", []))
+    spoken = sum(n for note, n in notes.items() if note in {"first-look", "summary", "item", "describe"}) - expired
+    heard_lines = totals.get("lines", 0) - totals.get("expired", 0)
     minutes = totals.get("activeMin", 0.0)
     cost = sum(_numbers(scene, "costUsd")) + sum(_numbers(ask, "costUsd"))
 
@@ -171,10 +174,12 @@ def summarize(metrics: list[Metric]) -> Results:
         ("Looks that led to a line", f"{spoken} of {len(scene)}" + (f" ({spoken / len(scene):.0%})" if scene else "")),
         ("Why the other looks stayed quiet", ", ".join(f"{note} {n}" for note, n in notes.most_common() if note not in {"first-look", "summary", "item", "describe"}) or "–"),
         ("Observing time", f"{minutes:.1f} min"),
-        ("Lines per minute while observing", f"{totals.get('lines', 0) / minutes:.1f}" if minutes else "–"),
+        ("Lines per minute while observing", f"{heard_lines / minutes:.1f}" if minutes else "–"),
         ("Meta API cost (estimated from usage)", f"${cost:.2f}" + (f", ${totals.get('costUsd', 0.0) / minutes:.3f} per observing minute" if minutes else "")),
         ("Questions answered", f"{sum(1 for m in ask if m.fields.get('answered'))} of {len(ask)}"),
     ]
+    if expired:
+        results.counts.append(("Lines that expired unheard (and were said on a later look if still in view)", str(expired)))
     events = Counter(str(m.fields.get("event")) for m in route)
     if events:
         results.counts.append(("Route events", ", ".join(f"{e} {n}" for e, n in sorted(events.items()))))

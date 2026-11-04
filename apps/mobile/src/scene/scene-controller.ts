@@ -4,7 +4,7 @@
  * Camera, network, the shared announcer and the clock are injected, so the loop runs under
  * `node --test` with fakes. The session hook wires in the real ones.
  */
-import type { Announcement, Announcer } from '../agent/announcer.ts';
+import type { Announcement, Announcer, DropReason } from '../agent/announcer.ts';
 import type { Detection } from '../agent/types.ts';
 import { phrases, type ErrorKind } from '../agent/phrases.ts';
 import type { ApiError } from '../api/detect-response.ts';
@@ -25,8 +25,31 @@ import {
 } from '../session/retry-policy.ts';
 import type { HoldReading } from '../perception/orientation.ts';
 import type { FrameCapture } from '../session/search-controller.ts';
-import { INITIAL_POLICY, decide, isHazard, mention, walkingRelevant, type DecisionNote, type PolicyState } from './attention-policy.ts';
-import { EMPTY_MEMORY, bandOf, contextFor, expire, markSpoken, mergeReply, pickBox, type MemoryItem, type SceneMemory } from './scene-memory.ts';
+import {
+  INITIAL_POLICY,
+  decide,
+  isHazard,
+  lineMarks,
+  mention,
+  unmarkLine,
+  walkingRelevant,
+  type DecisionNote,
+  type LineMarks,
+  type PolicyState,
+} from './attention-policy.ts';
+import {
+  EMPTY_MEMORY,
+  bandOf,
+  contextFor,
+  expire,
+  markSpoken,
+  mergeReply,
+  pickBox,
+  spokenBefore,
+  unmarkSpoken,
+  type MemoryItem,
+  type SceneMemory,
+} from './scene-memory.ts';
 import { scenePhrases } from './scene-phrases.ts';
 import { VERBOSITY_STEPS, type Importance, type RouteHint, type SceneChange, type SceneKind, type Verbosity } from './types.ts';
 import { unspeakableReason } from './wording.ts';
@@ -156,6 +179,11 @@ export type SceneController = {
   readonly verbosity: Verbosity;
   /** Forwarded from the announcer: logs frame-to-speech latency of scene lines. */
   speechStarted(announcement: Announcement, at: number): void;
+  /**
+   * Forwarded from the announcer: a scene line that expired in the queue was never heard, so it
+   * stops counting as said and the next look may say it again.
+   */
+  speechDropped(announcement: Announcement, reason: DropReason): void;
   /** Unmount: stops everything and logs a summary. start() works again afterwards. */
   shutdown(): void;
   subscribe(listener: () => void): () => void;
@@ -220,6 +248,9 @@ export function createSceneController(deps: SceneDeps): SceneController {
   let runningSince: number | null = null;
   /** Lines waiting to start playing: key -> when their frame capture began. */
   const pendingLines = new Map<string, { frameAt: number; replyAt: number }>();
+  /** What each waiting line marked as spoken, to undo if it expires unheard (speechDropped). */
+  const queuedMarks = new Map<string, { policy: LineMarks; memory: Record<string, number | null> }>();
+  let expired = 0;
   let snapshot = makeSnapshot();
 
   function makeSnapshot(): SceneSnapshot {
@@ -274,6 +305,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
         totalMs: spread(metrics.map((m) => m.totalMs)),
         frameToSpeechMs: spread(frameToSpeech),
         lines,
+        expired,
         notes,
         activeMin: round(minutes, 2),
         linesPerMin: minutes > 0 ? round(lines / minutes, 2) : null,
@@ -383,6 +415,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
       const describe = describePending;
       describePending = false;
       const merged = mergeReply(memory, data, receivedAt);
+      const before = policy;
       const decision = decide({
         reply: data,
         merged,
@@ -413,6 +446,10 @@ export function createSceneController(deps: SceneDeps): SceneController {
             ? { ...decision.announcement, key: `${decision.announcement.key}:${frameId}` }
             : decision.announcement;
         pendingLines.set(announcement.key, { frameAt, replyAt: receivedAt });
+        queuedMarks.set(announcement.key, {
+          policy: lineMarks(before, decision, receivedAt),
+          memory: spokenBefore(merged.memory, decision.spokenKeys),
+        });
         announcer.announce(announcement);
       }
 
@@ -662,6 +699,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
         boxes = [];
         boxesFrameAt = null;
         announcer.clearChannel('camera');
+        queuedMarks.clear();
         logSummary('pause');
       }
       publish();
@@ -718,6 +756,7 @@ export function createSceneController(deps: SceneDeps): SceneController {
     },
 
     speechStarted(announcement, at) {
+      queuedMarks.delete(announcement.key);
       const pending = pendingLines.get(announcement.key);
       if (!pending) return;
       pendingLines.delete(announcement.key);
@@ -727,6 +766,23 @@ export function createSceneController(deps: SceneDeps): SceneController {
       deps.log(
         metricsLine({ reason: 'scene-spoken', key: announcement.key, frameToSpeechMs: ms, replyToSpeechMs: round(at - pending.replyAt) }),
       );
+    },
+
+    speechDropped(announcement, reason) {
+      // Only a line that never played: one the user stopped ("stop", a tap) or one cut off by
+      // a reply still counts as said, so HeyNavi does not repeat what the user silenced.
+      if (reason !== 'expired') return;
+      const marks = queuedMarks.get(announcement.key);
+      if (!marks) return;
+      queuedMarks.delete(announcement.key);
+      pendingLines.delete(announcement.key);
+      memory = unmarkSpoken(memory, marks.memory, marks.policy.at, deps.now());
+      policy = unmarkLine(policy, marks.policy);
+      expired++;
+      deps.log(
+        metricsLine({ reason: 'scene-expired', key: announcement.key, queuedMs: round(deps.now() - marks.policy.at) }),
+      );
+      publish();
     },
 
     shutdown() {
@@ -747,6 +803,8 @@ export function createSceneController(deps: SceneDeps): SceneController {
       boxesFrameAt = null;
       describePending = false;
       pendingLines.clear();
+      queuedMarks.clear();
+      expired = 0;
       metrics = [];
       frameToSpeech = [];
       calls = 0;

@@ -63,6 +63,52 @@ function remember(state: PolicyState, keys: readonly string[], now: number): Pol
   return Object.fromEntries([...kept, ...keys.map((k) => [k, now] as const)]);
 }
 
+/**
+ * What one queued line marked in the policy state (`at` is the decision's `now`), so it can be
+ * undone if the line is never heard.
+ */
+export type LineMarks = {
+  at: number;
+  keys: readonly string[];
+  previousKeys: Readonly<Record<string, number | undefined>>;
+  previousSummaryAt: number | null;
+};
+
+export function lineMarks(before: PolicyState, decision: Pick<Decision, 'spokenKeys' | 'state'>, at: number): LineMarks {
+  return {
+    at,
+    keys: decision.spokenKeys,
+    previousKeys: Object.fromEntries(decision.spokenKeys.map((k) => [k, before.spokenKeys[k]])),
+    previousSummaryAt: before.summarySpokenAt,
+  };
+}
+
+/**
+ * Undoes a line that expired in the announcer's queue unheard, so it no longer counts toward the
+ * gap, the rate or its items' dedupe and the next look can say it. On the 2026-11-03 walk a curb
+ * line waited behind the long route start line, expired, and its curb then stayed "already told"
+ * for a minute. Marks a later line made are kept. An unheard first look stays done: redoing it
+ * would speak only the summary next and leave a hazard for a later look; its summary is free
+ * again for the next major change instead.
+ */
+export function unmarkLine(state: PolicyState, marks: LineMarks): PolicyState {
+  const index = state.spokenAt.lastIndexOf(marks.at);
+  const spokenAt = index < 0 ? state.spokenAt : [...state.spokenAt.slice(0, index), ...state.spokenAt.slice(index + 1)];
+  const spokenKeys: Record<string, number> = { ...state.spokenKeys };
+  for (const key of marks.keys) {
+    if (spokenKeys[key] !== marks.at) continue;
+    const previous = marks.previousKeys[key];
+    if (previous == null) delete spokenKeys[key];
+    else spokenKeys[key] = previous;
+  }
+  return {
+    firstLookDone: state.firstLookDone,
+    spokenAt,
+    summarySpokenAt: state.summarySpokenAt === marks.at ? marks.previousSummaryAt : state.summarySpokenAt,
+    spokenKeys,
+  };
+}
+
 export type DecisionNote =
   | 'first-look'
   | 'summary'
@@ -75,7 +121,7 @@ export type DecisionNote =
 
 export type Decision = {
   announcement: Omit<AnnounceEffect, 'type'> | null;
-  /** Memory keys the line covers; mark them spoken when it is queued. */
+  /** Memory keys the line covers; mark them spoken when it is queued (unmarkLine if it expires). */
   spokenKeys: string[];
   state: PolicyState;
   note: DecisionNote;

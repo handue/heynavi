@@ -1,6 +1,6 @@
 # HeyNavi — Execution Plan
 
-As of **Thu 2026-10-29**, revised the same day after the product vision changed (see [ARCHITECTURE.md §1](ARCHITECTURE.md)). This plan replaces the earlier search-first roadmap. **Updated 2026-11-02:** M0–M5 done; M6 implemented with its outdoor walk deferred; development for the demo finished (feature freeze), device checks pending (§0.1).
+As of **Thu 2026-10-29**, revised the same day after the product vision changed (see [ARCHITECTURE.md §1](ARCHITECTURE.md)). This plan replaces the earlier search-first roadmap. **Updated 2026-11-02:** M0–M5 done; M6 implemented with its outdoor walk deferred; development for the demo finished (feature freeze), device checks pending (§0.1). **2026-11-03:** an outdoor walk partly verified D2 and found two bugs, fixed (§0.1); D4 still to walk.
 
 - Hard deadline: **Wed Nov 4, 9:00 PM ET** (Nov 5, 11:00 KST).
 - Internal deadline: **Nov 4, 12:00 PM ET** (Nov 5, 02:00 KST), leaving 9 hours of buffer.
@@ -31,11 +31,13 @@ The user chose to finish development first and test afterwards. These need the i
 | # | Check | How it passes | Status |
 |---|---|---|---|
 | D1 | **Decision panel** (Settings › Advanced › Decision panel) | Observing indoors: the panel shows Spark's items, SAM's verdicts, and the queued line or the reason HeyNavi held back; it matches what is spoken; the camera stays smooth; VoiceOver reads it as one element | Implemented, not verified |
-| D2 | **Route hint for Spark** | During a route (indoors is enough to see it): scene metrics show `"route":"right:soon"` etc. and scene replies still pass; outdoors at a crossing, a crosswalk may be mentioned as a camera line, never merged into a route line | Implemented, not verified |
+| D2 | **Route hint for Spark** | During a route (indoors is enough to see it): scene metrics show `"route":"right:soon"` etc. and scene replies still pass; outdoors at a crossing, a crosswalk may be mentioned as a camera line, never merged into a route line | **Partly verified** (2026-11-03 walk): every look on the route carried `route=straight`, and 12 of 13 replies passed (one Spark timeout). A turn coming up (`:soon`, left/right) and the crossing part are not seen yet |
 | D3 | **Crosswalks and intersections in the scene prompt** | Outdoors: a visible crosswalk is reported as a landmark and said as a description ("A crosswalk is visible …"), with no signal state | Implemented, not verified |
-| D4 | **M6 outdoor walk** (exit test) | One walk of 300 m or more with a sighted companion: a step line for every turn, the arrival, no instruction with GPS worse than 20 m, few re-routes (`"reason":"route"` metrics) | Not passed: first walk failed, fix unit-tested only |
-| D5 | Earlier not-verified items | "quieter" recognized on the phone; the hedged "There may be …" line heard; a run with Screen Curtain on; recovery after a call or Siri | Implemented, not verified |
+| D4 | **M6 outdoor walk** (exit test) | One walk of 300 m or more with a sighted companion: a step line for every turn, the arrival, no instruction with GPS worse than 20 m, few re-routes (`"reason":"route"` metrics) | Not passed: first walk failed, fix unit-tested only. **Second try (2026-11-03) did not test it:** a 1.1 km route (6 turns) started, GPS was good after the first fix (21 m), but after 2 minutes a tap paused observing and HeyNavi then left the foreground for ~10 minutes (no GPS in the background), so no turn was reached; one off-route later (34 m at 3 m accuracy). Walk again with HeyNavi kept on screen |
+| D5 | Earlier not-verified items | "quieter" recognized on the phone; the hedged "There may be …" line heard; a run with Screen Curtain on; recovery after a call or Siri | Implemented, not verified. The 2026-11-03 sessions ran at verbosity "Few" (quiet), which only "quieter"/"fewer updates" or Settings set, so "quieter" probably worked earlier; set it back to Normal for the demo |
 | D6 | Rebuild for the live final | Xcode reused the free profile, so the app installed on 2026-11-02 still stops launching at **2026-11-05 19:10 UTC (2:10 PM ET)**. Fine for recording and the Nov 4 submission; rebuild after it expires and before the Nov 9 final (Nov 6–8) | Planned |
+
+**For the next walk (learned 2026-11-03):** keep HeyNavi on screen the whole time (in the background iOS stops the camera, GPS and route; the screen does not auto-lock while a route is active); do not tap the camera view (when nothing is being spoken, a tap pauses observing, so a tap meant to cut a line that just ended pauses everything); Settings › Announcement frequency › Normal. Fixed after the walk and unit-tested: a camera line that expires unheard behind a route line is said on the next look if still in view; boxes no longer jump back after 10 s.
 
 ## 1. What already works, and is reused
 

@@ -144,6 +144,33 @@ export function markSpoken(memory: SceneMemory, keys: readonly string[], now: nu
   };
 }
 
+/** When each of `keys` was last spoken about before a line marks them (null: never). */
+export function spokenBefore(memory: SceneMemory, keys: readonly string[]): Record<string, number | null> {
+  const byKey = new Map(memory.items.map((i) => [i.key, i]));
+  return Object.fromEntries(keys.map((k) => [k, byKey.get(k)?.lastSpokenAt ?? null]));
+}
+
+/**
+ * Undoes markSpoken(…, at) for a line that was never heard: each item goes back to when it was
+ * last spoken before (`previous`, from spokenBefore), unless a later line marked it since. Its
+ * "recently appeared" window starts again `now`: Spark calls it "still" by the next reply, which
+ * on cellular comes after that window, and a medium-relevance curb would never be said.
+ */
+export function unmarkSpoken(
+  memory: SceneMemory,
+  previous: Readonly<Record<string, number | null>>,
+  at: number,
+  now: number,
+): SceneMemory {
+  if (Object.keys(previous).length === 0) return memory;
+  return {
+    ...memory,
+    items: memory.items.map((i) =>
+      i.key in previous && i.lastSpokenAt === at ? { ...i, lastSpokenAt: previous[i.key], firstSeenAt: now } : i,
+    ),
+  };
+}
+
 /** The compact context for the next /v1/scene call. */
 export function contextFor(memory: SceneMemory, now: number): SceneContext {
   const items = [...expire(memory, now).items]

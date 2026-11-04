@@ -14,7 +14,7 @@ import { HeynaviMaps } from '../../modules/heynavi-maps';
 import { createExpoLocationPort } from '@/navigation/expo-location-port';
 import { createNavigationController, routeHint, type NavigationController } from '@/navigation/navigation-controller';
 import { SCENE_CAPTURE, SESSION_CAPTURE, captureFrame, type CaptureOptions } from '@/perception/capture';
-import { IDENTITY, turnAngle, type Quaternion } from '@/perception/motion';
+import { IDENTITY, UNKNOWN_TURN, turnAngle, type Quaternion } from '@/perception/motion';
 import { createOrientationSampler, type OrientationSampler } from '@/perception/orientation-sampler';
 import { createSceneController, type SceneController } from '@/scene/scene-controller';
 import { scenePhrases } from '@/scene/scene-phrases';
@@ -103,11 +103,11 @@ function createSession(onDetach: () => void): Session {
       lastSaid = { text: announcement.text, kind: captionKind(announcement) };
       for (const listener of captionListeners) listener();
     },
-    onDrop: __DEV__
-      ? (announcement, reason) => {
-          if (announcement.channel === 'camera') console.log(`[heynavi-scene] dropped ${announcement.key} (${reason})`);
-        }
-      : undefined,
+    onDrop: (announcement, reason) => {
+      // An expired scene line stops counting as said (the next look may say it again).
+      scene?.speechDropped(announcement, reason);
+      if (__DEV__ && announcement.channel === 'camera') console.log(`[heynavi-scene] dropped ${announcement.key} (${reason})`);
+    },
   });
   // How the phone is held decides between "ahead on your left" and "on the left of the camera view".
   const orientation = createOrientationSampler();
@@ -236,7 +236,8 @@ export function useCameraSession({ cameraAllowed }: { cameraAllowed: boolean }) 
     if (__DEV__) {
       const turn = orientation.turnSince(boxesFrameAt);
       const age = ((performance.now() - boxesFrameAt) / 1000).toFixed(1);
-      console.log(`[heynavi-motion] boxes frame age=${age}s turned=${turn ? ((turnAngle(turn) * 180) / Math.PI).toFixed(1) : '-'}deg`);
+      const turned = turn === UNKNOWN_TURN ? 'unknown' : turn ? `${((turnAngle(turn) * 180) / Math.PI).toFixed(1)}deg` : '-';
+      console.log(`[heynavi-motion] boxes frame age=${age}s turned=${turned}`);
     }
     const timer = setInterval(() => {
       boxTurn.value = orientation.turnSince(boxesFrameAt) ?? IDENTITY;
