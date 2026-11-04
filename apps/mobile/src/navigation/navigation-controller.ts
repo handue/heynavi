@@ -1,5 +1,6 @@
 import type { RouteHint } from '../scene/types.ts';
-import { distanceM, type LatLon } from './geo.ts';
+import type { LatLon } from './geo.ts';
+import { findPlace } from './place-search.ts';
 import { buildRoute, turnCount, type MapKitRoute, type Maneuver, type Route } from './route.ts';
 import { instructionText, routePhrases, startDirection } from './route-phrases.ts';
 import { firstStep, nextStep, remainingM, startTracker, track, type Fix, type TrackerEvent, type TrackerState } from './route-tracker.ts';
@@ -353,22 +354,22 @@ export function createNavigationController(deps: NavigationDeps): NavigationCont
       setStatus('searching');
       say('route:searching', routePhrases.searching(destination), 'reply', 5000);
       const searchAt = deps.now();
-      let found: { name: string; latitude: number; longitude: number }[];
-      try {
-        found = await deps.maps.searchPlaces(destination, fix.point.lat, fix.point.lon, SEARCH_RADIUS_M);
-      } catch {
-        found = [];
-      }
+      const maps = deps.maps;
+      // As said first; then each meaningful word, the closest similar name nearby (place-search.ts).
+      const { place: nearest, results, tries, via } = await findPlace(
+        destination,
+        fix.point,
+        MAX_WALK_M,
+        (q) => maps.searchPlaces(q, fix.point.lat, fix.point.lon, SEARCH_RADIUS_M).catch(() => []),
+        () => gen === generation,
+      );
       if (gen !== generation) return;
-      const nearest = found
-        .map((p) => ({ name: p.name, point: { lat: p.latitude, lon: p.longitude } }))
-        .map((p) => ({ ...p, distance: distanceM(fix.point, p.point) }))
-        .filter((p) => p.distance <= MAX_WALK_M)
-        .sort((a, b) => a.distance - b.distance)[0];
       metric({
         event: 'search',
-        results: found.length,
+        results,
         nearestM: nearest ? Math.round(nearest.distance) : null,
+        tries,
+        via,
         searchMs: Math.round(deps.now() - searchAt),
         fixMs: Math.round(searchAt - startedAt),
         accuracyM: fix.accuracyM == null ? null : Math.round(fix.accuracyM),
