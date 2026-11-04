@@ -18,6 +18,11 @@ public class HeynaviMapsModule: Module {
         longitudinalMeters: radiusMeters * 2
       )
       request.resultTypes = [.pointOfInterest, .address]
+      // Only places inside the region: as a hint, MapKit returned same-name places in other cities
+      // first and the nearby one not at all (campus test, 2026-11-03).
+      if #available(iOS 18.0, *) {
+        request.regionPriority = .required
+      }
       let response = try await MKLocalSearch(request: request).start()
       return response.mapItems.map { item in
         let coordinate = item.placemark.coordinate
