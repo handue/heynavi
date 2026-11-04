@@ -30,3 +30,18 @@ backend/bench/results/*
 
 # Demo video footage and renders (large, not source)
 recordings/
+
+# Photos, video and audio stay local (camera files can carry GPS); app images under assets are tracked
+*.jpg
+*.jpeg
+*.heic
+*.heif
+*.mov
+*.mp4
+*.m4a
+*.wav
+*.aiff
+
+# Logs (Metro logs hold transcripts and scene lines); save them under backend/var/ instead
+*.log
+logs/

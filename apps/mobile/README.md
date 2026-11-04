@@ -1,56 +1,17 @@
-# Welcome to your Expo app 👋
+# HeyNavi app (Expo / React Native, iOS)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+The iPhone app. Setup, running and testing are in the [root README](../../README.md); the design is in [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
 
-## Get started
+- `src/app/`: screens (Expo Router): Home, onboarding, the camera session, Settings, diagnostics
+- `src/scene/`: the scene loop: Muse Spark looks, SAM 3.1 checks, scene memory, and the attention policy that decides what is said
+- `src/agent/`: the announcer (priority queue for speech), the object-search state machine and its 2-of-3 confirmation, phrases
+- `src/voice/`: on-device voice commands: grammar, echo gate, barge-in, stop latency
+- `src/perception/`: camera capture, phone orientation (left/right relative to the user) and the rotation history that keeps SAM boxes on their objects
+- `src/session/`: the camera session: SAM box overlay, caption card, control bar, decision panel, metrics upload
+- `src/api/`: the backend client; `src/navigation/`: the walking-navigation prototype
+- `src/components/`: UI, including the HeyNavi orb (`orb-shader.ts`, a Skia runtime shader)
+- `src/diagnostics/`, `src/settings/`, `src/feedback/`, `src/theme/`, `src/lib/`: the diagnostics screen, stored settings, haptics, design tokens and small helpers
+- `modules/heynavi-maps/`: a local Expo module (Swift) for Apple MapKit, used by the walking-navigation prototype
+- `scripts/build-ios-device.sh`: builds and installs the app on a cabled iPhone (`--release` bundles the JavaScript)
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+This app needs a development build (`npm run ios:device`); Expo Go cannot run it, because it uses its own native modules. It started from the `create-expo-app` template, whose MIT notice is in [LICENSE](LICENSE).

@@ -1,10 +1,12 @@
 # HeyNavi — System Architecture
 
-Status (2026-11-02): M0–M5 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays), natural questions about the surroundings, the final UI and a release build on cellular. Walking navigation (M6) is implemented and checked indoors; its outdoor walk test is not passed yet. The decision panel (§3.3) and the route hint for Spark (§8) were added on 2026-11-02 and are unit-tested only. Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
+> **Scope (2026-11-03):** walking navigation to a destination (§8, `src/navigation`, the `heynavi-maps` module) is an early prototype in the code and is not part of the demo. It is a possible future direction.
+
+Status (2026-11-02): M0–M5 are implemented and tested on the iPhone 16e: the SAM 3.1 search loop, on-device English voice commands, the echo gate, Magic Tap, automatic walking-obstacle awareness (Muse Spark scene understanding, automatic SAM 3.1 checks, directional speech, overlays), natural questions about the surroundings, the final UI and a release build on cellular. The decision panel (§3.3) was added on 2026-11-02; it is unit-tested, and its check on the phone is listed in PLAN §0.1 (D1), with the other items not yet checked on the phone (D5). Numbers are targets or initial values to tune unless they are marked as measured; the measurements are in [FEASIBILITY.md](FEASIBILITY.md).
 
 ## 1. Product and design principles
 
-HeyNavi is a **voice-first AI environmental-awareness and navigation companion** for blind and low-vision people. The main experience is proactive and continuous:
+HeyNavi is a **voice-first AI environmental-awareness companion** for blind and low-vision people. The main experience is proactive and continuous:
 
 1. The user starts HeyNavi and points the camera ahead.
 2. HeyNavi interprets the scene on its own. Nobody has to name an object first.
@@ -17,7 +19,7 @@ HeyNavi is a **voice-first AI environmental-awareness and navigation companion**
 | 2 | **Grounded Object Detection** (§5) | Supporting: finds and checks the objects that scene understanding picked | `sam-3.1` | Search loop implemented (M1); automatic checks of Spark's objects implemented (M3) |
 | 3 | **Proactive Voice Guidance** (§6) | Decides what is said and when, and lets the user cut it off | the app's announcer | Implemented (M1–M3) |
 | 4 | **Conversational Interaction** (§7) | Natural English questions and commands. Active Object Search is one optional capability | on-device speech recognition, `muse-spark-1.3`, `sam-3.1` | Implemented (M2–M4) |
-| 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Implemented (M6); outdoor walk not verified |
+| 5 | **Destination Navigation** (§8) | A walking route from a real routing provider, plus GPS. The camera adds context | Apple MapKit, Core Location | Prototype; not part of the demo (future direction) |
 
 Principles:
 
@@ -89,6 +91,8 @@ Each scene frame also records how the phone was held when it was taken (§6.3).
 
 ### 3.1 Module layout
 
+Planned at M0; the folders as built are listed in [apps/mobile/README.md](../apps/mobile/README.md) (grounding/ and conversation/ were folded into scene/ and api/; no scheduler or earcons were built).
+
 ```
 apps/mobile/src/
   app/            Expo Router screens: index (home), session (camera session), diagnostics    [M0–M3]
@@ -151,7 +155,7 @@ Labels and hints are read aloud by VoiceOver and heard by the microphone, so non
 
 ### 3.4 The HeyNavi symbol
 
-A living frosted glass orb with two eyes (`components/orb.tsx`), the same on Home, onboarding and the camera's center (Describe) button; it replaced the earlier blue jelly on 2026-11-03, after the user's character board ("Frosted orb"), kept in HeyNavi blue (#0668E1). It is a Skia runtime shader (`components/orb-shader.ts`, `@shopify/react-native-skia`): a sphere shaded in 2D from its position in the disc (no ray marching, so it is cheaper than the jelly), white frosted glass lit from the top left with a blue wash and rim toward the bottom right, a broad soft highlight instead of a glint, a soft blue halo strongest below it, and two dark oval eyes that slide toward where it looks and narrow near the edge. `components/orb-motion.ts` computes the per-frame uniforms on the UI thread (Reanimated): it floats and breathes, the outline wobbles slightly, the glow drifts, the eyes glance side to side and blink about every 4.6 s at rest; every motion is a whole number of cycles of one 60 s loop, so it never resets. Modes ease into each other: idle (calm, glancing), listening (eyes straight ahead, a ripple and glow that follow the microphone level from the recognizer's volume events), thinking (a describe or question in flight: eyes look up), speaking (livelier, a gentle swell). It pauses while its screen is not focused and holds a still pose with open eyes looking ahead under Reduce Motion; it is hidden from VoiceOver. In the Describe button its canvas (108 pt) is larger than the 84 pt white disc, so the orb fills about three quarters of it. Not yet measured on the phone: frame rate (the jelly measured 60 fps on Home and ~59.8 fps on the camera screen).
+A living frosted glass orb with two eyes (`components/orb.tsx`), the same on Home, onboarding and the camera's center (Describe) button; it replaced the earlier blue jelly on 2026-11-03, after the developer's character board ("Frosted orb"), kept in HeyNavi blue (#0668E1). It is a Skia runtime shader (`components/orb-shader.ts`, `@shopify/react-native-skia`): a sphere shaded in 2D from its position in the disc (no ray marching, so it is cheaper than the jelly), white frosted glass lit from the top left with a blue wash and rim toward the bottom right, a broad soft highlight instead of a glint, a soft blue halo strongest below it, and two dark oval eyes that slide toward where it looks and narrow near the edge. `components/orb-motion.ts` computes the per-frame uniforms on the UI thread (Reanimated): it floats and breathes, the outline wobbles slightly, the glow drifts, the eyes glance side to side and blink about every 4.6 s at rest; every motion is a whole number of cycles of one 60 s loop, so it never resets. Modes ease into each other: idle (calm, glancing), listening (eyes straight ahead, a ripple and glow that follow the microphone level from the recognizer's volume events), thinking (a describe or question in flight: eyes look up), speaking (livelier, a gentle swell). It pauses while its screen is not focused and holds a still pose with open eyes looking ahead under Reduce Motion; it is hidden from VoiceOver. In the Describe button its canvas (108 pt) is larger than the 84 pt white disc, so the orb fills about three quarters of it. Not yet measured on the phone: frame rate (the jelly measured 60 fps on Home and ~59.8 fps on the camera screen).
 
 ## 4. Continuous Scene Understanding (primary)
 
@@ -344,7 +348,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 | "quieter" / "fewer updates", "more detail" / "more updates", "updates off", "updates on" | Implemented (M3) |
 | "where is the entrance" and other free-form targets → Active Object Search on that noun phrase | Implemented (M2 grammar, voice only since M3) |
 | Questions: "where is the entrance", "what objects are nearby", "is there a chair here" (§7.2) | Implemented (M4) |
-| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Implemented (M6) |
+| "navigate to X", "take me to X", "where am I", "what's next", "stop navigation" | Prototype (M6), not part of the demo |
 
 ### 7.2 Free-form questions (implemented, M4)
 
@@ -356,9 +360,9 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
 - **Over HeyNavi's speech.** Questions are accepted while HeyNavi talks, and picked out of its echo when said just before or after its words, but not if they repeat a content word HeyNavi just said.
 - **Limitations.** Without a wake phrase, a question asked by someone nearby is answered too. Misrecognitions become wrong questions ("where is the door" heard as "where is the war").
 
-## 8. Destination Navigation (M6)
+## 8. Destination Navigation (prototype, future direction)
 
-**Implemented (2026-10-30):** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route, and each look carries a route hint for Spark (below, added 2026-11-02).
+**Prototype code (2026-10-30), not part of the demo:** `apps/mobile/modules/heynavi-maps` (Swift: `MKLocalSearch`, `MKDirections` walking, `CLGeocoder` in English), `src/navigation/` (geo math, route model, tracker, phrases, controller, `expo-location` adapter), the voice commands "navigate to / take me to / how do I get to …", "what's next", "where am I", "stop navigation", and the route card above the caption. The nearest search result within 5 km is chosen. Route lines have their own announcer channel (priority 1, above the camera's own lines); answers to "what's next" and "where am I" are replies. Uploaded metrics carry distances and GPS accuracy only, never coordinates or place names. The camera keeps observing during a route, and each look carries a route hint for Spark (below, added 2026-11-02).
 
 
 - **Provider: Apple MapKit on the phone**, through a local Expo module (Swift, about 150 lines):
@@ -366,7 +370,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
   - `MKDirections` with `transportType = .walking` returns the route line and the steps.
   - It needs no API key, no account and no paid Apple membership.
   - **Measured from the Mac on 2026-10-29:** Seoul City Hall → Gwanghwamun took 320 ms and returned 756 m in 6 steps with English instructions; place search took 200–320 ms. See [research/routing.md](research/routing.md).
-  - Apple's walking data in Korea is reported to be uneven, so we walk the demo route ourselves first.
+  - Apple's walking data is reported to be uneven in some countries, so a route has to be walked and checked before it can be relied on.
 - **Fallbacks:**
   - The OSRM foot profile, called from the backend, also needs no key. The public server is for light use only.
   - TMAP's pedestrian API, if the user creates an SK Open API key.
@@ -381,7 +385,7 @@ A reply to the user (priority 0) always wins. Pausing updates never silences rou
   - about 30 m before each step and again at the step;
   - on request ("what's next").
 
-  For example: "Route: in about 40 meters, turn right onto Sejong-daero."
+  For example: "Route: in about 40 meters, turn right onto Main Street."
 - **GPS check.** Instructions are given only when the reported horizontal accuracy is 20 m or better. Otherwise HeyNavi says "The GPS signal is weak, so I can't place you on the route right now." Distances are rounded to 10 m and always prefixed with "about".
 - **The camera stays on as supplementary context.** The scene track keeps running. Each look carries a route hint, `route: {next, soon}`: only the kind of the next step (left, right, straight, u-turn, arrive) and whether it is within about 60 m (never with weak GPS). No street, place or position is sent. Spark is told that corners, crosswalks, curbs and intersections matter more (entrances and doors before arrival), so it can mention something relevant like a visible crosswalk. The note goes after the fixed instructions, so the prompt cache still works. Camera lines keep their own wording and are never merged into route lines. HeyNavi never says it is safe to cross or to walk, and never reports traffic-signal state.
 - **Outdoor prerequisites, needed for any outdoor test:**
@@ -465,7 +469,7 @@ Proactive camera lines describe what was in view a few seconds earlier. That is 
 
 - **Development.** `uvicorn --host 0.0.0.0` on the Mac, with the iPhone on the same Wi-Fi and Metro serving the dev build.
 - **Outdoors and demo.** A release build, plus a backend reachable over cellular: a Cloudflare quick tunnel from the Mac (`backend/scripts/start-tunnel.sh`, chosen in M5). Quick tunnels have no uptime promise: on 2026-11-02 one lost its address after about two days while cloudflared kept running. The script now checks `/health` through the tunnel every 30 s (resolved with public DNS) and, when cloudflared has exited or 3 checks in a row fail while the backend answers, starts a new tunnel and sends the new address to the iPhone, retrying until the phone takes it. Tested by freezing and by killing cloudflared (new tunnel healthy 24 s and 8 s later). The hand-off needs the phone unlocked and reachable from the Mac, so a tunnel lost during an outdoor walk cannot be recovered until the phone is back; the app then shows its Server screen ("Back to the home screen" returns).
-- **Builds.** `apps/mobile/scripts/build-ios-device.sh` with a free Personal Team. The profile expires 2026-11-05 11:10 PST, so rebuild before the Nov 9 live final.
+- **Builds.** `apps/mobile/scripts/build-ios-device.sh` with a free Personal Team. The profile expires 2026-11-05 19:10 UTC, so rebuild before the Nov 9 live final.
 
 ## 15. Future enhancements
 
@@ -477,6 +481,6 @@ Proactive camera lines describe what was in view a few seconds earlier. That is 
 
   Korean is the first candidate. Muse Voice Transcribe supports 25 languages with code-switching, which is an option where Apple has no on-device recognizer.
 - **Questions through Muse Voice Transcribe**, as push-to-talk.
-- **Haptic route cues, and Korean pedestrian data** (TMAP).
+- **Walking navigation to a destination**, built on the §8 prototype, with haptic route cues and local pedestrian data.
 - **Tracking verified objects between Spark calls**, so HeyNavi can say "the chair is now on your left" at SAM speed.
-- **Open-weight models**, for the open-weight bonus.
+- **Open-weight models** for scene understanding and grounding.

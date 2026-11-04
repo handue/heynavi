@@ -1,6 +1,6 @@
 # Walking routes for the navigation milestone
 
-Checked 2026-10-29, for the Destination Navigation milestone (PLAN M5). The question: which real routing provider can give **walking** routes where we will test and demo (Seoul area), without blocking on an account or key.
+Checked 2026-10-29, for the Destination Navigation milestone (PLAN M5). The question: which real routing provider can give **walking** routes without blocking on an account or key.
 
 ## Measured from the development Mac (2026-10-29)
 
