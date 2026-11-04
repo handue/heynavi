@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ATTENTION, INITIAL_POLICY, decide, isHazard, mention, rank, type PolicyState } from './attention-policy.ts';
-import { EMPTY_MEMORY, markSpoken, mergeReply, type SceneMemory } from './scene-memory.ts';
+import { ATTENTION, INITIAL_POLICY, decide, isHazard, lineMarks, mention, rank, unmarkLine, type PolicyState } from './attention-policy.ts';
+import { EMPTY_MEMORY, markSpoken, mergeReply, spokenBefore, unmarkSpoken, type SceneMemory } from './scene-memory.ts';
 import { sceneItem } from './scene-test-helpers.ts';
 import type { HoldFrame, SceneChange, SceneItem, Verbosity } from './types.ts';
 
@@ -294,5 +294,56 @@ describe('round 4 fixes', () => {
     // A different thing in the same reply is still said.
     assert.equal(s.reply(49_000, [onFloor('box'), onFloor('basket')]).announcement?.text, 'Possible obstacle: a basket in the lower center of the camera view.');
     assert.equal(s.reply(80_000, [onFloor('box', { status: 'new' })]).note, 'item', 'after the window');
+  });
+});
+
+describe('a line that expires unheard (walk of 2026-11-03)', () => {
+  const at = 10_000;
+  const before: PolicyState = { firstLookDone: true, spokenAt: [1000], summarySpokenAt: null, spokenKeys: { door: 1000 } };
+
+  function curbLine() {
+    const merged = mergeReply(EMPTY_MEMORY, { summary: null, items: [steps({ label: 'curb', ground: 'curb' })] }, at);
+    const decision = decide({ reply: { summary: null, change: 'minor' }, merged, verbosity: 'normal', state: before, now: at });
+    return { merged, decision };
+  }
+
+  it('undoes exactly what the line marked, so the next look can say it', () => {
+    const { merged, decision } = curbLine();
+    assert.equal(decision.note, 'item');
+    assert.deepEqual(unmarkLine(decision.state, lineMarks(before, decision, at)), before);
+
+    const memory = markSpoken(merged.memory, decision.spokenKeys, at);
+    const undone = unmarkSpoken(memory, spokenBefore(merged.memory, decision.spokenKeys), at, 14_000);
+    const curb = undone.items.find((i) => i.key === 'curb');
+    assert.equal(curb?.lastSpokenAt, null);
+    assert.equal(curb?.firstSeenAt, 14_000, 'recently appeared again, from the drop');
+  });
+
+  it('keeps what a later line marked', () => {
+    const { decision } = curbLine();
+    const later: PolicyState = {
+      ...decision.state,
+      spokenAt: [...decision.state.spokenAt, 15_000],
+      spokenKeys: { ...decision.state.spokenKeys, curb: 15_000 },
+    };
+    const kept = unmarkLine(later, lineMarks(before, decision, at));
+    assert.deepEqual(kept.spokenAt, [1000, 15_000]);
+    assert.equal(kept.spokenKeys.curb, 15_000);
+    assert.equal(kept.spokenKeys.door, 1000);
+  });
+
+  it('keeps an unheard first look done, but frees its summary and its place in the rate', () => {
+    // Redoing the first look would speak only the summary on the next reply and push a hazard to
+    // a later look (review of the fix).
+    const merged = mergeReply(EMPTY_MEMORY, { summary: 'A sidewalk', items: [] }, 5000);
+    const first = decide({ reply: { summary: 'A sidewalk', change: 'major' }, merged, verbosity: 'normal', state: INITIAL_POLICY, now: 5000 });
+    assert.equal(first.note, 'first-look');
+    const undone = unmarkLine(first.state, lineMarks(INITIAL_POLICY, first, 5000));
+    assert.deepEqual(undone, { ...INITIAL_POLICY, firstLookDone: true });
+    // The next reply takes the item path: a confirmed curb is said, at priority 1.
+    const next = mergeReply(EMPTY_MEMORY, { summary: 'A sidewalk with a curb', items: [steps({ label: 'curb', ground: 'curb' })] }, 12_000);
+    const d = decide({ reply: { summary: 'A sidewalk with a curb', change: 'minor' }, merged: next, verbosity: 'normal', state: undone, now: 12_000 });
+    assert.equal(d.note, 'item');
+    assert.equal(d.announcement?.priority, 1);
   });
 });

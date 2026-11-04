@@ -43,19 +43,24 @@ async function until(check: () => boolean, label: string, ms = 2000) {
   }
 }
 
-/** Every scene call moves the fake clock 7 s forward, past the policy's minimum gap. */
-function harness(respond: Responder, overrides: Partial<SceneDeps> = {}) {
+/**
+ * Every scene call moves the fake clock 7 s forward, past the policy's minimum gap. Lines play for
+ * 1 ms, except those `speech.hold` matches, which play until release() (a long route line).
+ */
+function harness(respond: Responder, overrides: Partial<SceneDeps> = {}, speech: { hold?: (text: string) => boolean } = {}) {
   let clock = 0;
   const spoken: string[] = [];
   const logs: string[] = [];
   const requests: SceneRequest[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
+  let held: (() => void) | null = null;
   const speaker: Speaker = {
     speak(text, _lang, callbacks) {
       spoken.push(text);
       callbacks.onStart?.();
-      setTimeout(callbacks.onDone, 1);
+      if (speech.hold?.(text)) held = callbacks.onDone;
+      else setTimeout(callbacks.onDone, 1);
     },
     stop() {},
   };
@@ -63,6 +68,7 @@ function harness(respond: Responder, overrides: Partial<SceneDeps> = {}) {
   const announcer = createAnnouncer(speaker, {
     now: () => clock,
     onSpeechStart: (a, at) => controllerRef?.speechStarted(a, at),
+    onDrop: (a, reason) => controllerRef?.speechDropped(a, reason),
   });
   let sessions = 0;
   const controller = createSceneController({
@@ -95,6 +101,16 @@ function harness(respond: Responder, overrides: Partial<SceneDeps> = {}) {
     requests,
     get maxInFlight() {
       return maxInFlight;
+    },
+    /** Moves the fake clock, for replies spaced further apart than 7 s. */
+    advance(ms: number) {
+      clock += ms;
+    },
+    /** Ends the held line (its onDone), as the speaker would when it finishes. */
+    release() {
+      const done = held;
+      held = null;
+      done?.();
     },
     metrics(reason: string) {
       return logs
@@ -337,5 +353,92 @@ describe('questions', () => {
     await h.controller.ask('is it safe to cross');
     await until(() => h.spoken.length >= 2, 'both answers');
     assert.deepEqual(h.spoken, ["I don't see an entrance right now.", "I can't answer that from the camera view."]);
+  });
+});
+
+describe('lines that expire unheard (walk of 2026-11-03)', () => {
+  const routeStart = {
+    key: 'route:start',
+    priority: 1 as const,
+    text: 'Route to the park: about 1.1 kilometers, 6 turns.',
+    lang: 'en-US' as const,
+    ttlMs: 12_000,
+    dedupeMs: 0,
+    goalId: null,
+    channel: 'route' as const,
+  };
+  const curb = (status: SceneItem['status'], importance: SceneItem['importance']) =>
+    sceneItem('curb', { kind: 'level_change', importance, band: 'lower', status, detections: [det(0.5, 0.8)] });
+
+  /** The route starts while frame 1 is in flight; its start line plays until frame 2 is sent. */
+  function walk(atFrame2: (h: ReturnType<typeof harness>) => void, importance: SceneItem['importance'] = 'high') {
+    const h: ReturnType<typeof harness> = harness(
+      (request) => {
+        if (request.frame_id === 0) return ok(request, { summary: 'A sidewalk', change: 'major' });
+        if (request.frame_id === 1) h.announcer.announce(routeStart);
+        if (request.frame_id === 2) atFrame2(h);
+        return ok(request, { items: [curb(request.frame_id === 1 ? 'new' : 'still', importance)] });
+      },
+      {},
+      { hold: (text) => text.startsWith('Route to') },
+    );
+    return h;
+  }
+
+  it('says a hazard on the next look when its line expired behind a long route line', async () => {
+    // Frame 1's curb line (priority 1, TTL 4 s) waits behind the route line (also priority 1) and
+    // has expired when that line ends, 7 s later.
+    const h = walk((w) => w.release());
+    h.controller.start();
+    try {
+      await until(() => h.spoken.some((t) => t.includes('curb')), 'the curb line');
+      await until(() => h.metrics('scene').length >= 3, 'frame 2 logged');
+    } finally {
+      h.controller.shutdown();
+    }
+    assert.equal(h.spoken.filter((t) => t.includes('curb')).length, 1);
+    assert.ok(h.spoken.indexOf(routeStart.text) < h.spoken.findIndex((t) => t.includes('curb')));
+    const [expired] = h.metrics('scene-expired');
+    assert.equal(expired.key, 'scene:item:curb');
+    assert.equal(expired.queuedMs, 7000);
+    assert.deepEqual(
+      h.metrics('scene').slice(1, 3).map((m) => m.note),
+      ['item', 'item'],
+    );
+    assert.equal(h.metrics('scene-summary').at(-1)?.expired, 1);
+  });
+
+  it('also says a medium-relevance curb when the next reply comes after its 12 s window', async () => {
+    // Cellular spacing: the route line ends 7 s after the curb line was queued, the next reply 6 s
+    // later, 13 s after the curb was first seen, and Spark now calls it "still".
+    const h = walk((w) => {
+      w.release();
+      w.advance(6000);
+    }, 'medium');
+    h.controller.start();
+    try {
+      await until(() => h.spoken.some((t) => t.includes('curb')), 'the curb line');
+    } finally {
+      h.controller.shutdown();
+    }
+    assert.equal(h.spoken.filter((t) => t.includes('curb')).length, 1);
+    assert.equal(h.metrics('scene-expired').length, 1);
+  });
+
+  it('does not repeat a line the user silenced while it waited', async () => {
+    // "stop" (or a tap) clears the queue: the user asked for silence, so the curb stays said.
+    const h = walk((w) => w.announcer.clear());
+    h.controller.start();
+    try {
+      await until(() => h.metrics('scene').length >= 4, 'four replies');
+    } finally {
+      h.controller.shutdown();
+    }
+    assert.equal(h.spoken.filter((t) => t.includes('curb')).length, 0);
+    assert.deepEqual(
+      h.metrics('scene').slice(2, 4).map((m) => m.note),
+      ['nothing-new', 'nothing-new'],
+    );
+    assert.equal(h.metrics('scene-expired').length, 0);
   });
 });

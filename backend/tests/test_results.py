@@ -64,3 +64,19 @@ def test_percentile_matches_the_app() -> None:
     assert percentile([], 50) is None
     assert percentile([1, 2, 3, 4], 50) == 2.5
     assert percentile([10], 95) == 10
+
+
+def test_counts_only_lines_that_were_heard(tmp_path: Path) -> None:
+    lines = [
+        metric_line(reason="scene", note="first-look", rttMs=4000),
+        metric_line(reason="scene", note="item", key="scene:item:curb", rttMs=4000),
+        metric_line(reason="scene-expired", key="scene:item:curb", queuedMs=7000),
+        metric_line(reason="scene", note="item", key="scene:item:curb", rttMs=4000),
+        metric_line(reason="scene-summary", calls=3, failures=0, lines=3, expired=1, activeMin=1.0, costUsd=0.01),
+    ]
+    log = tmp_path / "walk.log"
+    log.write_text("\n".join(lines))
+    counts = dict(summarize(list(read_metrics(log))).counts)
+    assert counts["Looks that led to a line"] == "2 of 3 (67%)"
+    assert counts["Lines per minute while observing"] == "2.0"
+    assert counts["Lines that expired unheard (and were said on a later look if still in view)"] == "1"

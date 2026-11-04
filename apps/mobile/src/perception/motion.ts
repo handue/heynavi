@@ -25,6 +25,12 @@ export const PORTRAIT_FOV = { tanHalfX: 0.374, tanHalfY: 0.666 } as const;
 /** Beyond this much turning, boxes are hidden instead of moved. */
 export const MAX_TURN_RAD = (30 * Math.PI) / 180;
 
+/**
+ * Stands for a turn that can no longer be known (the frame is older than the turn history): half
+ * a turn, far past MAX_TURN_RAD, so its boxes hide instead of jumping back uncorrected.
+ */
+export const UNKNOWN_TURN: Quaternion = [0, 0, 1, 0];
+
 export function multiply(a: Quaternion, b: Quaternion): Quaternion {
   'worklet';
   return [
