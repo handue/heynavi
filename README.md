@@ -10,7 +10,7 @@ Built for the Meta Global AI Developer Hackathon 2026 (Indie Developer Track, th
 
 [![HeyNavi demo: HeyNavi says "Possible obstacle: 2 tables directly ahead" with SAM's box on the table](docs/assets/heynavi-demo-poster.jpg)](docs/assets/heynavi-demo.mp4)
 
-**[Watch the demo (2:20, 1080p)](docs/assets/heynavi-demo.mp4)** · captions: [heynavi-demo.srt](docs/assets/heynavi-demo.srt). Every phone shot is a real screen recording from the iPhone 16e (hallway, lobby, stairwell; the lobby scenes run over 5G). Skipped waits are marked ("+7 s"), and a few frames are held still or blurred to hide lines HeyNavi did not say aloud and campus signs. The narration is an AI voice; see "Built with".
+**[Watch the demo on YouTube (2:20)](https://youtu.be/DVV_GXIN-uU)** · [MP4 in this repo (1080p)](docs/assets/heynavi-demo.mp4) · captions: [heynavi-demo.srt](docs/assets/heynavi-demo.srt). Every phone shot is a real screen recording from the iPhone 16e (hallway, lobby, stairwell; the lobby scenes run over 5G). Skipped waits are marked ("+7 s"), and a few frames are held still or blurred to hide lines HeyNavi did not say aloud and campus signs. The narration is an AI voice; see "Built with".
 
 ## Run it yourself
 
