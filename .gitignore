@@ -45,3 +45,6 @@ recordings/
 # Logs (Metro logs hold transcripts and scene lines); save them under backend/var/ instead
 *.log
 logs/
+# The published demo video, its captions and poster (no location data; checked)
+!docs/assets/heynavi-demo.mp4
+!docs/assets/heynavi-demo-poster.jpg

@@ -1,0 +1,167 @@
+1
+00:00:00,133 --> 00:00:02,267
+[HeyNavi] A cabinet is visible ahead on your left.
+
+2
+00:00:02,300 --> 00:00:04,300
+Nobody asked. It noticed.
+
+3
+00:00:05,200 --> 00:00:09,267
+HeyNavi is a walking companion for blind and low-vision people.
+
+4
+00:00:09,267 --> 00:00:12,967
+Most AI apps describe one photo when you ask.
+
+5
+00:00:12,967 --> 00:00:16,067
+HeyNavi keeps watching, and speaks up when it matters.
+
+6
+00:00:18,667 --> 00:00:21,433
+[HeyNavi] I'm looking around. I'll tell you what I notice.
+
+7
+00:00:21,900 --> 00:00:24,700
+[HeyNavi] A long empty hallway with doors on both sides.
+
+8
+00:00:25,100 --> 00:00:27,167
+Things in your way come first.
+
+9
+00:00:27,633 --> 00:00:32,233
+[HeyNavi] Possible obstacle: 2 tables directly ahead. 4 booth seats are visible ahead.
+
+10
+00:00:32,867 --> 00:00:35,033
+[HeyNavi] Stairwell with steps descending ahead.
+
+11
+00:00:35,067 --> 00:00:37,567
+The decision panel shows each look.
+
+12
+00:00:37,433 --> 00:00:40,433
+Steps again? Nothing new, so it stays quiet.
+
+13
+00:00:40,500 --> 00:00:42,500
+Need the exit? Just ask.
+
+14
+00:00:43,200 --> 00:00:44,400
+[User] Where is the exit?
+
+15
+00:00:44,400 --> 00:00:46,633
+HeyNavi takes a fresh photo.
+
+16
+00:00:46,933 --> 00:00:48,100
+[HeyNavi] Let me look.
+
+17
+00:00:48,567 --> 00:00:51,067
+[HeyNavi] An exit sign is ahead on your left near the ceiling.
+
+18
+00:00:51,200 --> 00:00:54,267
+Looking for a classroom? Ask which room it is.
+
+19
+00:00:54,800 --> 00:00:56,033
+[User] Which room is this?
+
+20
+00:00:56,067 --> 00:00:58,967
+Muse Spark reads the sign in a fresh photo.
+
+21
+00:01:00,000 --> 00:01:01,067
+[HeyNavi] Let me look.
+
+22
+00:01:01,800 --> 00:01:04,533
+[HeyNavi] This is the lactation room, directly ahead.
+
+23
+00:01:05,533 --> 00:01:07,433
+Or ask for the elevator.
+
+24
+00:01:07,667 --> 00:01:08,933
+[User] Where's the elevator?
+
+25
+00:01:09,500 --> 00:01:12,900
+[HeyNavi] There are two elevators ahead on your left, next to each other.
+
+26
+00:01:12,900 --> 00:01:15,167
+SAM 3.1 outlines it.
+
+27
+00:01:15,733 --> 00:01:19,367
+Every few seconds, Muse Spark lists what matters for walking.
+
+28
+00:01:19,367 --> 00:01:23,967
+SAM 3.1 checks each item on the same frame and draws its box.
+
+29
+00:01:23,967 --> 00:01:28,033
+Then HeyNavi decides: say it, hedge it, or stay quiet.
+
+30
+00:01:28,033 --> 00:01:30,233
+And it never says a path is safe.
+
+31
+00:01:30,233 --> 00:01:33,800
+Questions use the same loop: Spark answers from a fresh photo,
+
+32
+00:01:33,800 --> 00:01:36,800
+and SAM finds the thing and says where it is.
+
+33
+00:01:40,733 --> 00:01:45,100
+On our own test runs, a look takes about five seconds on the phone.
+
+34
+00:01:45,100 --> 00:01:48,767
+SAM confirmed 83% of what Spark proposed,
+
+35
+00:01:48,767 --> 00:01:52,933
+and a stop command cuts the voice in about 17 milliseconds.
+
+36
+00:01:57,667 --> 00:02:00,100
+Signs, doors, things on the floor.
+
+37
+00:02:00,100 --> 00:02:01,700
+Visual information is everywhere,
+
+38
+00:02:01,700 --> 00:02:03,933
+and hard to reach without sight.
+
+39
+00:02:03,933 --> 00:02:07,733
+HeyNavi notices it, unasked, and answers when you ask.
+
+40
+00:02:10,733 --> 00:02:13,933
+HeyNavi doesn't replace a cane or a guide dog.
+
+41
+00:02:13,933 --> 00:02:16,267
+Walking navigation could come next.
+
+42
+00:02:16,267 --> 00:02:18,933
+Open source, built during this hackathon.
